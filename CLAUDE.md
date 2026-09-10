@@ -19,6 +19,10 @@ the default tool just because it's more familiar.
   → use `probe` instead of reading the module's source. Do not probe modules
   that start servers, touch the filesystem, or need secrets/network — read
   those normally.
+- **Searching file contents** -> use ripgrep (`rg`) or the Grep tool, never
+  grep/egrep/fgrep/findstr/Select-String. When piping into rg pass an explicit
+  dash (`cmd | rg PATTERN -`): some builds ignore the pipe and silently search
+  the working tree instead. Or redirect to a file first and search that.
 
 ## Non-triggers (use judgment, skill is optional)
 
@@ -27,3 +31,6 @@ the default tool just because it's more familiar.
 - One-off commands unlikely to be rerun (e.g. `git status`, `ls`).
 
 If a task clearly matches a trigger above, invoke the skill without asking.
+These rules are enforced by the nitro-skills PreToolUse hooks where installed;
+a denied command names the skill to use. Append `#nitro-skip` only when the
+exact raw command is genuinely required.

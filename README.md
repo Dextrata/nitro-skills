@@ -14,18 +14,55 @@ probe/       SKILL.md  scripts/probe.py
 
 Requires Python 3. `probe js` also needs Node.
 
+**ripgrep is required.** The skills and the hooks assume `rg` is the only
+search tool in use; grep, findstr and Select-String are blocked once the hook
+below is installed. Install it with your package manager:
+
+```
+winget install BurntSushi.ripgrep.MSVC     # Windows
+choco install ripgrep                      # Windows (Chocolatey)
+scoop install ripgrep                      # Windows (Scoop)
+brew install ripgrep                       # macOS
+sudo apt install ripgrep                   # Debian/Ubuntu
+sudo dnf install ripgrep                   # Fedora
+cargo install ripgrep                      # anywhere with Rust
+```
+
+Binaries for every platform: https://github.com/BurntSushi/ripgrep/releases.
+Check with `rg --version`. One quirk to know: on some builds `cmd | rg PATTERN`
+ignores the pipe and silently searches the working tree instead, so always pipe
+with an explicit dash (`cmd | rg PATTERN -`) or redirect to a file and search
+that. The Bash hook enforces this.
+
 Installing the skills only makes them *available* — the agent still decides
 whether to use them. To make usage consistent, add rules to your project's
 `CLAUDE.md` telling the agent when each skill is required (not optional). See
 [CLAUDE.md](CLAUDE.md) in this repo for a working example you can adapt.
 
-**Optional:** [hooks/block-whole-file-reads.py](hooks/block-whole-file-reads.py)
-is a `PreToolUse` hook that mechanically blocks whole-file `Read` calls on
-existing files above a line threshold and points the agent at hashpatch/probe
-instead, rather than relying on it to follow the CLAUDE.md rule on its own.
-It's more aggressive than the CLAUDE.md-only approach — install it only if
-you want the rule enforced rather than just requested. See the file's
-docstring for the `.claude/settings.json` wiring.
+## Hooks (optional, enforce instead of request)
+
+CLAUDE.md rules are requests; an agent in a hurry, or one whose harness steers
+it toward the shell, will still `cat` a file, `sed -i` an edit, or run `npm
+test` bare. Two `PreToolUse` hooks make the rules mechanical. Each file's
+docstring has the `.claude/settings.json` wiring; both take `python` and read
+the tool call as JSON on stdin.
+
+- [hooks/block-whole-file-reads.py](hooks/block-whole-file-reads.py) - denies a
+  whole-file `Read` of an existing file over 60 lines and points at hashpatch
+  `outline`/`grep`/`view` or probe. Ranged reads and new files pass.
+- [hooks/enforce-nitro-bash.py](hooks/enforce-nitro-bash.py) - matcher
+  `Bash|PowerShell`. Denies, in order: grep-family commands (use `rg`); `cmd |
+  rg PATTERN` without an explicit `-`; `cat`/`sed -n`/`head`/`tail`/`Get-Content`
+  dumping more than 60 lines of an existing file into context; in-place edits of
+  an existing file (`sed -i`, `perl -i`, `>`/`>>` redirection, `tee`,
+  `Set-Content`, inline `python -`/`node -e` scripts that write); and
+  test/build/lint commands not wrapped in rerun. Creating a new file by
+  redirection and piping a dump onward are allowed. Append `#nitro-skip` to a
+  command that genuinely needs to bypass it.
+
+The Read hook alone is not enough: an agent told to prefer the shell never
+calls Read, so the Bash hook is the one that closes the gap. `python
+tests_hook.py` runs the 35-case suite for it.
 
 ---
 
