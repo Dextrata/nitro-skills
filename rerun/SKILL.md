@@ -1,6 +1,6 @@
 ---
 name: rerun
-description: Run tests, builds, linters, or any repeated command and see only what changed since last time. Use instead of running a command directly whenever it might be run more than once in a session.
+description: REQUIRED wrapper for running tests, builds, linters, type checks, or any command whose output might be run again this session — pytest, npm test, tsc, eslint, cargo check, make, etc. Use it on the FIRST run too, not just repeats, since that establishes the free baseline. Only skip for genuine one-shot commands unlikely to be rerun (git status, ls, cat).
 ---
 
 # rerun

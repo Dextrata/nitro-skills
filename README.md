@@ -14,6 +14,19 @@ probe/       SKILL.md  scripts/probe.py
 
 Requires Python 3. `probe js` also needs Node.
 
+Installing the skills only makes them *available* — the agent still decides
+whether to use them. To make usage consistent, add rules to your project's
+`CLAUDE.md` telling the agent when each skill is required (not optional). See
+[CLAUDE.md](CLAUDE.md) in this repo for a working example you can adapt.
+
+**Optional:** [hooks/block-whole-file-reads.py](hooks/block-whole-file-reads.py)
+is a `PreToolUse` hook that mechanically blocks whole-file `Read` calls on
+existing files above a line threshold and points the agent at hashpatch/probe
+instead, rather than relying on it to follow the CLAUDE.md rule on its own.
+It's more aggressive than the CLAUDE.md-only approach — install it only if
+you want the rule enforced rather than just requested. See the file's
+docstring for the `.claude/settings.json` wiring.
+
 ---
 
 ## hashpatch (explain like I'm 5)

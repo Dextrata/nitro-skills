@@ -1,6 +1,6 @@
 ---
 name: probe
-description: Learn a Python or JS module's API by executing it instead of reading its source. Use before reading any module just to find out what it exports, what a function's parameters are, or what methods a class has.
+description: REQUIRED before reading a Python or JS module's source just to learn its API — what it exports, a function's parameters, or a class's methods. Runs the module and prints signatures instead of the whole file. Do not Read a module for this purpose first. Skip only for modules whose import has side effects (starts a server, touches disk/network, needs secrets) — use hashpatch outline on those instead.
 ---
 
 # probe

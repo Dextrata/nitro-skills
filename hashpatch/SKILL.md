@@ -1,6 +1,6 @@
 ---
 name: hashpatch
-description: Token-frugal code viewing and editing. Use whenever editing an existing file. Replaces Read+Edit with hash-anchored line ops so you never re-transmit code you already saw.
+description: REQUIRED for any edit to an existing file, and for viewing part of one. Replaces Read+Edit with hash-anchored line ops (outline/grep/view/apply) so you never re-transmit code you already saw. Use before Read or Edit on any file that already exists, no matter how small the change. Skip only for brand-new files (use Write) or a file already fully outlined/viewed this turn.
 ---
 
 # hashpatch
