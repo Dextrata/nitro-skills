@@ -7,7 +7,9 @@ description: REQUIRED wrapper for running tests, builds, linters, type checks, o
 
 Command output is the biggest token sink in an edit-test loop, and most of it is identical from run to run. `rerun` caches each command's normalized output and prints only the delta.
 
-`RR="python ~/.claude/skills/rerun/scripts/rr.py"`
+`RR="python $HOME/.claude/skills/rerun/scripts/rr.py"`
+
+Use `$HOME`, never `~`: PowerShell does not expand `~` inside quotes. `$HOME` expands in Bash and PowerShell alike.
 
 - `$RR pytest -q` (or any command) - first run prints the squeezed output as a baseline. Every later run prints a unified diff against the previous run, or a single "unchanged" line.
 - `$RR --full CMD` - print the whole squeezed output and reset the baseline. Use when you need to see everything again.

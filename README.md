@@ -52,7 +52,7 @@ with an explicit dash (`cmd | rg PATTERN -`) or redirect to a file and search
 that. The Bash hook enforces this.
 
 
-Installing the skills only makes them *available* â€” the agent still decides
+Installing the skills only makes them *available* - the agent still decides
 whether to use them. **To make usage consistent and enforce the skills, you must
 install the PreToolUse hooks** (see Hooks section below). Without them, agents will
 bypass the skills and use shell commands instead. You should also add rules to your
@@ -114,10 +114,10 @@ test` bare. Two `PreToolUse` hooks make the rules mechanical. Each file's
 docstring has the `.claude/settings.json` wiring; both take `python` and read
 the tool call as JSON on stdin.
 
-- [hooks/block-whole-file-reads.py](hooks/block-whole-file-reads.py) â€” denies a
+- [hooks/block-whole-file-reads.py](hooks/block-whole-file-reads.py) - denies a
   whole-file `Read` of an existing file over 60 lines and points at hashpatch
   `outline`/`grep`/`view` or probe. Ranged reads and new files pass.
-- [hooks/enforce-nitro-bash.py](hooks/enforce-nitro-bash.py) â€” matcher
+- [hooks/enforce-nitro-bash.py](hooks/enforce-nitro-bash.py) - matcher
   `Bash|PowerShell`. Denies, in order: grep-family commands (use `rg`); `cmd |
   rg PATTERN` without an explicit `-`; `cat`/`sed -n`/`head`/`tail`/`Get-Content`
   dumping more than 60 lines of an existing file into context; in-place edits of

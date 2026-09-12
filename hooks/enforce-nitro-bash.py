@@ -139,7 +139,7 @@ def main():
 
     if RUNNER.search(cmd) and "rr.py" not in cmd:
         return deny("Test/build/lint commands go through the rerun skill so repeat runs print only the diff: "
-                    "`python ~/.claude/skills/rerun/scripts/rr.py \"<command>\"` (quote a command that has pipes).")
+                    "`python $HOME/.claude/skills/rerun/scripts/rr.py \"<command>\"` (quote a command that has pipes; use $HOME, not ~, so PowerShell expands it).")
     return 0
 
 

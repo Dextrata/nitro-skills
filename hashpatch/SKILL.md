@@ -7,7 +7,9 @@ description: REQUIRED for any edit to an existing file, and for viewing part of 
 
 Edit files by *pointing* at lines, not by quoting them. Every line is shown as `N:HHHH|text`; you edit by citing `N:HHHH`. The hash proves the anchor is current, so stale edits are rejected atomically. Do not Read a file whole and do not use Edit with an old_string. Use these:
 
-`HP="python ~/.claude/skills/hashpatch/scripts/hp.py"`
+`HP="python $HOME/.claude/skills/hashpatch/scripts/hp.py"`
+
+Use `$HOME`, never `~`: PowerShell does not expand `~` inside quotes, so `python "~/..."` fails with "can't open file". `$HOME` expands in Bash and PowerShell alike.
 
 ## Locate (cheap)
 - `$HP outline FILE` - only def/class/function/export lines. Start here, not with a full read.

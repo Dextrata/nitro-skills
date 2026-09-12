@@ -7,7 +7,9 @@ description: REQUIRED before reading a Python or JS module's source just to lear
 
 Reading a 400-line module to learn six function signatures costs 400 lines. Importing it and asking the runtime costs six. `probe` does runtime introspection and prints one line per symbol: kind, name, signature, first doc line.
 
-`PROBE="python ~/.claude/skills/probe/scripts/probe.py"`
+`PROBE="python $HOME/.claude/skills/probe/scripts/probe.py"`
+
+Use `$HOME`, never `~`: PowerShell does not expand `~` inside quotes. `$HOME` expands in Bash and PowerShell alike.
 
 - `$PROBE py package.module` - top-level exports of a Python module (respects `__all__`).
 - `$PROBE py package.module:ClassName` - a class with its methods and properties.
