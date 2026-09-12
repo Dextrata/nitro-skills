@@ -4,7 +4,7 @@ Skills that cut the number of tokens an AI coding agent burns while working. Eac
 
 ## Install
 
-Copy each folder into `~/.claude/skills/` (global) or `.claude/skills/` (per project):
+Copy each folder into `~/.claude/skills/` (global) or `.claude/skills/` (per project). The SKILL.md one-liners reference the scripts via `$HOME/.claude/skills/...` rather than `~` because PowerShell does not expand `~` inside a quoted argument:
 
 ```
 hashpatch/   SKILL.md  scripts/hp.py
@@ -34,12 +34,58 @@ ignores the pipe and silently searches the working tree instead, so always pipe
 with an explicit dash (`cmd | rg PATTERN -`) or redirect to a file and search
 that. The Bash hook enforces this.
 
-Installing the skills only makes them *available* — the agent still decides
-whether to use them. To make usage consistent, add rules to your project's
-`CLAUDE.md` telling the agent when each skill is required (not optional). See
+Installing the skills only makes them *available* â€” the agent still decides
+whether to use them. **To make usage consistent and enforce the skills, you must
+install the PreToolUse hooks** (see Hooks section below). Without them, agents will
+bypass the skills and use shell commands instead. You should also add rules to your
+project's `CLAUDE.md` to document when each skill is required. See
 [CLAUDE.md](CLAUDE.md) in this repo for a working example you can adapt.
 
-## Hooks (optional, enforce instead of request)
+## Hooks (required for skills to work)
+
+Without the PreToolUse hooks, agents will bypass the skills and use shell commands
+instead (cat/sed -i for edits, bare test commands for runs, grep for searching).
+Two `PreToolUse` hooks make skill usage mechanical and unavoidable.
+
+### Installing hooks
+
+Both hooks are installed per-project in `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python /path/to/nitro-skills/hooks/enforce-nitro-bash.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python /path/to/nitro-skills/hooks/block-whole-file-reads.py"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Replace `/path/to/nitro-skills` with the actual path to this repo (absolute path recommended).
+Both hooks take `python` and read the tool call as JSON on stdin.
+
+Globally, add the hook paths to `~/.claude/settings.json` (Windows: `%USERPROFILE%\.claude\settings.json`).
+Project-level hooks override global ones, so test per-project first, then move them global once validated.
+
+### Hook descriptions
+
 
 CLAUDE.md rules are requests; an agent in a hurry, or one whose harness steers
 it toward the shell, will still `cat` a file, `sed -i` an edit, or run `npm
@@ -47,10 +93,10 @@ test` bare. Two `PreToolUse` hooks make the rules mechanical. Each file's
 docstring has the `.claude/settings.json` wiring; both take `python` and read
 the tool call as JSON on stdin.
 
-- [hooks/block-whole-file-reads.py](hooks/block-whole-file-reads.py) - denies a
+- [hooks/block-whole-file-reads.py](hooks/block-whole-file-reads.py) â€” denies a
   whole-file `Read` of an existing file over 60 lines and points at hashpatch
   `outline`/`grep`/`view` or probe. Ranged reads and new files pass.
-- [hooks/enforce-nitro-bash.py](hooks/enforce-nitro-bash.py) - matcher
+- [hooks/enforce-nitro-bash.py](hooks/enforce-nitro-bash.py) â€” matcher
   `Bash|PowerShell`. Denies, in order: grep-family commands (use `rg`); `cmd |
   rg PATTERN` without an explicit `-`; `cat`/`sed -n`/`head`/`tail`/`Get-Content`
   dumping more than 60 lines of an existing file into context; in-place edits of
@@ -61,8 +107,7 @@ the tool call as JSON on stdin.
   command that genuinely needs to bypass it.
 
 The Read hook alone is not enough: an agent told to prefer the shell never
-calls Read, so the Bash hook is the one that closes the gap. `python
-tests_hook.py` runs the 35-case suite for it.
+calls Read, so the Bash hook is the one that closes the gap.
 
 ---
 
