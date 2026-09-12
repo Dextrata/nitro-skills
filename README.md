@@ -4,7 +4,7 @@ Skills that cut the number of tokens an AI coding agent burns while working. Eac
 
 ## Install
 
-Copy each folder into `~/.claude/skills/` (global) or `.claude/skills/` (per project). The SKILL.md one-liners reference the scripts via `$HOME/.claude/skills/...` rather than `~` because PowerShell does not expand `~` inside a quoted argument:
+Copy each folder into `~/.claude/skills/` (global) or `.claude/skills/` (per project). The SKILL.md one-liners reference the scripts via `$HOME/.claude/skills/...` (works on macOS, Linux, and Windows) rather than `~` because PowerShell does not expand `~` inside quoted arguments:
 
 ```
 hashpatch/   SKILL.md  scripts/hp.py
@@ -16,23 +16,41 @@ Requires Python 3. `probe js` also needs Node.
 
 **ripgrep is required.** The skills and the hooks assume `rg` is the only
 search tool in use; grep, findstr and Select-String are blocked once the hook
-below is installed. Install it with your package manager:
+below is installed. Install it on your platform:
 
+**macOS:**
 ```
-winget install BurntSushi.ripgrep.MSVC     # Windows
-choco install ripgrep                      # Windows (Chocolatey)
-scoop install ripgrep                      # Windows (Scoop)
-brew install ripgrep                       # macOS
-sudo apt install ripgrep                   # Debian/Ubuntu
-sudo dnf install ripgrep                   # Fedora
-cargo install ripgrep                      # anywhere with Rust
+brew install ripgrep
 ```
 
-Binaries for every platform: https://github.com/BurntSushi/ripgrep/releases.
-Check with `rg --version`. One quirk to know: on some builds `cmd | rg PATTERN`
+**Linux (Debian/Ubuntu):**
+```
+sudo apt install ripgrep
+```
+
+**Linux (Fedora):**
+```
+sudo dnf install ripgrep
+```
+
+**Windows:**
+```
+winget install BurntSushi.ripgrep.MSVC     # Windows Package Manager
+choco install ripgrep                      # Chocolatey
+scoop install ripgrep                      # Scoop
+```
+
+**Any platform (with Rust):**
+```
+cargo install ripgrep
+```
+
+Binaries for every platform are available at https://github.com/BurntSushi/ripgrep/releases.
+Verify with `rg --version`. One quirk to know: on some builds `cmd | rg PATTERN`
 ignores the pipe and silently searches the working tree instead, so always pipe
 with an explicit dash (`cmd | rg PATTERN -`) or redirect to a file and search
 that. The Bash hook enforces this.
+
 
 Installing the skills only makes them *available* â€” the agent still decides
 whether to use them. **To make usage consistent and enforce the skills, you must
@@ -81,8 +99,11 @@ Both hooks are installed per-project in `.claude/settings.json`:
 Replace `/path/to/nitro-skills` with the actual path to this repo (absolute path recommended).
 Both hooks take `python` and read the tool call as JSON on stdin.
 
-Globally, add the hook paths to `~/.claude/settings.json` (Windows: `%USERPROFILE%\.claude\settings.json`).
-Project-level hooks override global ones, so test per-project first, then move them global once validated.
+**Global installation:** Add the hook paths to `~/.claude/settings.json`:
+- **Unix (macOS/Linux):** `~/.claude/settings.json`
+- **Windows:** `%USERPROFILE%\.claude\settings.json` (or `~/.claude/settings.json` with `$HOME` expansion)
+
+Project-level hooks override global ones, so test per-project first in `.claude/settings.json`, then move them global once validated.
 
 ### Hook descriptions
 
