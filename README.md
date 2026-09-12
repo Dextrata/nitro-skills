@@ -464,15 +464,70 @@ One effect not in the table: everything an agent reads stays in context and is r
 
 ### Correctness and security review
 
-The three core scripts were reviewed and run through a 19-case regression suite (edge cases: trailing blank lines in patch bodies, inserts inside replaced ranges, overlapping hunks, non-UTF-8 bytes, missing trailing newline, CRLF, file creation, malformed anchors, carriage returns in command output, timestamp/duration/temp-path churn, exit-code transitions, shell pipelines, Windows drive letters in module paths, missing modules). Bugs found and fixed during review: inserts inside a replaced range were silently swallowed; non-UTF-8 files crashed; the last blank line of a patch body was dropped; rerun swallowed the exit code on baseline runs and split lines on stray carriage returns; probe split `C:\path` on the drive colon.
+All fifteen skills and the five hooks were reviewed and are covered by a
+regression suite (`python tests.py`, 33 tests: hook allow/deny behaviour, the
+core line-op edge cases, per-skill round-trips, the installer, and the
+benchmark harness). Core edge cases exercised: trailing blank lines in patch
+bodies, inserts inside replaced ranges, overlapping hunks, non-UTF-8 bytes,
+missing trailing newline, CRLF, file creation, malformed anchors, carriage
+returns in command output, timestamp/duration/temp-path churn, exit-code
+transitions, shell pipelines, Windows drive letters in module paths, missing
+modules. Bugs found and fixed during review: inserts inside a replaced range
+were silently swallowed; non-UTF-8 files crashed; the last blank line of a
+patch body was dropped; rerun swallowed the exit code on baseline runs and
+split lines on stray carriage returns; probe split `C:\path` on the drive
+colon.
 
 Security properties:
 
-- **No network, no eval, no dynamic code from input.** hashpatch and rerun only parse text. probe imports the module you name, which is its entire purpose.
-- **hashpatch** writes only the path you pass, same trust level as any Edit tool. Anchors are 16-bit CRCs of the line *plus* the line number, so a wrong edit needs both a stale line number and a 1-in-65,536 hash collision on that exact line. Blank lines all hash to `0000`; anchor on a non-blank line when precision matters.
-- **rerun** runs a single-argument command through the shell by design so pipelines work; multi-argument commands are passed as an argv list with no shell. Cached output is stored under `~/.cache/rerun` in plaintext, so anything a command prints (including secrets) lands there. The directory is created mode 0700 on POSIX; on Windows it inherits your profile's ACL. Use `--forget` after commands that print credentials.
-- **probe** executes module top-level code and prepends the current directory to `sys.path`, so a hostile repo could shadow a standard-library module name. This is the same exposure as running the project's tests. The skill instructs the agent not to probe modules that start servers, touch files, or need secrets.
-- **Anchor hashes and cached output are data, not instructions.** Nothing in any script interprets file or command content as commands.
+- **No network, no eval, no dynamic code from input.** No script fetches a URL
+  or passes input to `eval`/`exec`. The only code execution is deliberate:
+  `probe` imports the module you name, and the wrapper skills run the command
+  you type.
+- **Two scripts write to your files.** `hashpatch` writes only the path you
+  pass; `refactor` writes the files its path/pattern arguments select. Both are
+  the same trust level as any Edit tool, neither keeps a backup, so rely on
+  version control — `refactor --dry` reports the change set without writing.
+  hashpatch anchors are 16-bit CRCs of the line *plus* the line number, so a
+  wrong edit needs both a stale line number and a 1-in-65,536 hash collision on
+  that exact line. Blank lines all hash to `0000`; anchor on a non-blank line
+  when precision matters.
+- **The wrapper skills run your command through the shell by design.**
+  `rerun`, `seen`, `alias`, `mine`, `shape`, `trace` pass a single argument to
+  the shell so pipelines work; a multi-argument command is passed as an argv
+  list with no shell. They add no quoting or escaping of their own, so the same
+  care applies as typing the command yourself. `sdiff` and `recall` only ever
+  invoke `git`; `q` and `refactor` only ever invoke `rg`.
+- **Cached output is stored in plaintext and may contain secrets.** `rerun`
+  (`~/.cache/rerun`), plus `seen`, `alias`, `mine`, `trace`, `sdiff`, `q` and
+  `budget` (under `~/.cache/nitro/`) persist command output, file excerpts,
+  symbol indexes and command history across runs. Anything a wrapped command
+  prints lands there. These directories are created mode 0700 on POSIX; on
+  Windows they inherit your profile's ACL. Use `rerun --forget` after commands
+  that print credentials, and delete `~/.cache/nitro` to clear the rest.
+- **`recall` writes into the repo by default.** Its store is
+  `.claude/recall.jsonl` when a `.claude` directory exists (so a team's agents
+  share it), otherwise `~/.cache/nitro/recall`. Treat it as committed content:
+  don't save anything into it you would not push.
+- **`probe` executes module top-level code** and prepends the current directory
+  to `sys.path`, so a hostile repo could shadow a standard-library module name.
+  This is the same exposure as running the project's tests. The skill instructs
+  the agent not to probe modules that start servers, touch files, or need
+  secrets. For JS targets it shells out to `node -e`.
+- **Read-only skills stay read-only.** `believe`, `blast`, `q` and `budget`
+  only read source files and their own caches; none of them writes to your
+  tree.
+- **The hooks decide, they don't execute.** `enforce-nitro-bash`,
+  `budget-guard` and `block-whole-file-reads` inspect the proposed tool input
+  and return allow/deny JSON; they never run the command. `expand-aliases`
+  rewrites `§N` tokens in a command back to the strings `alias` recorded, which
+  means an alias table entry becomes part of a command line — the table is
+  written only by `alias` from output you asked for, but an unexpected `§N` in
+  a command is worth a look. `budget-record` appends output sizes to the
+  history file. Append `#nitro-skip` to bypass a hook when the raw command is
+  genuinely required.
+- **File content, anchor hashes and cached output are data, not instructions.**
+  Nothing in any script interprets file or command content as commands.
 
 ---
 
