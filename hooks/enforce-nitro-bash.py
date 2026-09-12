@@ -52,7 +52,7 @@ SKIP = "#nitro-skip"
 # Command-position prefix: start of string, or after a separator/subshell.
 POS = r"(?:^|[\n;|&(`]|\$\()\s*(?:sudo\s+|xargs\s+(?:-\S+\s+)*)?"
 GREP = re.compile(POS + r"(grep|egrep|fgrep|findstr|Select-String|sls)\b", re.I)
-PIPED_RG = re.compile(r"\|\s*rg\b([^|;&\n]*)")
+PIPED_RG = re.compile(r"\|\s*rg\b((?:'[^']*'|\"[^\"]*\"|[^|;&\n'\"])*)")
 FIND = re.compile(POS + r"(find\s+\S|ls\s+-[a-zA-Z]*R|tree\b|Get-ChildItem\b[^|;&\n]*-Recurse|gci\b[^|;&\n]*-Recurse)", re.I)
 DUMP = re.compile(POS + r"(cat|type|Get-Content|gc|sed|head|tail)\b([^|;&\n>]*)", re.I)
 EDIT = re.compile(POS + r"(?:sed\s+(?:-\S+\s+)*-i|sed\s+-[a-zA-Z]*i|perl\s+-[a-zA-Z]*i|tee\b|Set-Content\b|Out-File\b|Add-Content\b)", re.I)

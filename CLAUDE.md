@@ -35,26 +35,26 @@ the default tool just because it's more familiar.
 - **Narrowing JSON after `shape`** -> `--path`, or a narrowing `jq` filter
   (`cmd | jq -c '.items[].id'`). Never `jq .` on a file or response.
 - **Any command whose output may repeat lines already shown** (git diff, git
-  log, rg with context, second test run) â†’ wrap in `seen`.
-- **Output dense with long paths/hashes/dotted names** â†’ wrap in `alias`; refer
-  to aliased strings as `Â§N` afterwards.
+  log, rg with context, second test run) → wrap in `seen`.
+- **Output dense with long paths/hashes/dotted names** → wrap in `alias`; refer
+  to aliased strings as `§N` afterwards.
 - **Confirming something you believe about a file you already saw** (a
-  signature, members, an import, a call, a literal) â†’ `believe`, never a
+  signature, members, an import, a call, a literal) → `believe`, never a
   re-view.
 - **Mechanical edits: rename, add-import, wrap a range, delete/move a symbol,
-  regex across files** â†’ `refactor`, not one hashpatch patch per file.
-- **Log-like output over ~100 lines** (build/server/CI/docker logs) â†’ `mine`.
+  regex across files** → `refactor`, not one hashpatch patch per file.
+- **Log-like output over ~100 lines** (build/server/CI/docker logs) → `mine`.
 - **JSON/CSV/table output or files** (curl, gh/aws/kubectl --json, package
-  lockfiles, exports) â†’ `shape`, then `--path`.
-- **Anything that may print a stack trace** â†’ wrap in `trace`.
-- **Reviewing changes** â†’ `sdiff` instead of bare `git diff`/`git show`.
+  lockfiles, exports) → `shape`, then `--path`.
+- **Anything that may print a stack trace** → wrap in `trace`.
+- **Reviewing changes** → `sdiff` instead of bare `git diff`/`git show`.
 - **A structural code question that would take 2+ rg calls** ("who calls X",
-  "which handlers are async", "outline of module M") â†’ `q`.
-- **Before changing a signature, renaming, or deleting** â†’ `blast` once
+  "which handlers are async", "outline of module M") → `q`.
+- **Before changing a signature, renaming, or deleting** → `blast` once
   instead of grepping for callers.
-- **Starting a "where/how is X handled" investigation** â†’ `recall ask` first;
+- **Starting a "where/how is X handled" investigation** → `recall ask` first;
   `recall save` with file:line refs when done.
-- **A command denied by the budget hook** â†’ re-issue it through the shaper the
+- **A command denied by the budget hook** → re-issue it through the shaper the
   message names; `budget report` shows what is eating tokens.
 
 ## Non-triggers (use judgment, skill is optional)

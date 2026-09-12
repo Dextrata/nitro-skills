@@ -478,5 +478,32 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(rc, 2, out)
         self.assertNotIn("Installing", out)
 
+
+class BenchTests(unittest.TestCase):
+    """bench.py: every scenario runs and reports a real baseline and skill size."""
+
+    def test_all_scenarios_produce_measurements(self):
+        import bench
+        for name, task, fn in bench.SCENARIOS:
+            with self.subTest(scenario=name):
+                d = tempfile.mkdtemp(prefix="benchtest-")
+                try:
+                    base, skill, bdesc, sdesc = fn(d)
+                except Exception as e:
+                    self.fail(f"{name} raised {e!r}")
+                finally:
+                    shutil.rmtree(d, ignore_errors=True)
+                self.assertTrue(base.strip(), f"{name}: empty baseline")
+                self.assertTrue(skill.strip(), f"{name}: empty skill output")
+                self.assertTrue(bdesc and sdesc, f"{name}: missing description")
+
+    def test_markdown_table_covers_every_skill(self):
+        import bench
+        named = {n.split("-")[0] for n, _, _ in bench.SCENARIOS}
+        skills = {"hashpatch", "rerun", "probe", "seen", "alias", "believe",
+                  "refactor", "mine", "shape", "trace", "sdiff", "q", "blast",
+                  "recall", "budget"}
+        self.assertEqual(skills - named, set(), "skills with no bench scenario")
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

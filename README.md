@@ -255,8 +255,8 @@ The Read hook alone is not enough: an agent told to prefer the shell never
 calls Read, so the Bash hook is the one that closes the gap.
 
 - [hooks/expand-aliases.py](hooks/expand-aliases.py) - `PreToolUse`. Rewrites
-  `Â§N` tokens (assigned by the `alias` skill) in a command back to the real
-  string via `updatedInput`, so the agent can type `cat Â§3/config.py`.
+  `§N` tokens (assigned by the `alias` skill) in a command back to the real
+  string via `updatedInput`, so the agent can type `cat §3/config.py`.
 - [hooks/budget-record.py](hooks/budget-record.py) - `PostToolUse`. Records
   lines and characters per command shape in `~/.cache/nitro/budget`.
 - [hooks/budget-guard.py](hooks/budget-guard.py) - `PreToolUse`. Denies a
@@ -278,8 +278,11 @@ repo so it can be committed.
 
 | skill | replaces | what it prints instead |
 |---|---|---|
+| **hashpatch** | `Read` then `Edit` on a file that already exists | `N:HHHH` anchored lines; `outline` / `grep` / `view` to locate, `apply` to patch, fresh anchors back |
+| **rerun** | re-running tests / builds / linters and re-reading the whole output | the first run as a baseline, then only the diff, or one `unchanged` line |
+| **probe** | reading a module's source just to learn its API | one signature per function and class, read off the imported module |
 | **seen** | running a command whose output you partly saw already | the new lines; every block of 4+ lines shown before folds to `[seen #7 L12-40, 29 lines]` |
-| **alias** | retyping/rereading deep paths, hashes, dotted names | `Â§N` tokens with a one-time legend; `Â§N` works in later commands (with the hook, in every command) |
+| **alias** | retyping/rereading deep paths, hashes, dotted names | `§N` tokens with a one-time legend; `§N` works in later commands (with the hook, in every command) |
 | **believe** | re-reading a file to confirm what you think is in it | `OK`/`MISMATCH` per claim, mismatches carry the truth |
 | **refactor** | one patch per file for rename / add-import / wrap / delete / move / regex | one line of intent in, one line per touched file out |
 | **mine** | dumping or tailing a build/server log | Drain-style templates with counts and first/last line; `--keep error` for verbatim errors |
@@ -290,6 +293,24 @@ repo so it can be committed.
 | **blast** | grepping for callers before an edit | def, callees, callers grouped by enclosing symbol, tests that mention it |
 | **recall** | re-deriving "where is X handled" every session | the saved answer, each `file:line` ref re-validated by line hash (FRESH / STALE) |
 | **budget** | discovering the flood after it happened | per-command token ledger; hooks deny the next oversized run and name the shaper |
+
+### hashpatch (explain like I'm 5)
+
+Imagine you want your friend to fix one sentence in a book. The old way: you read them the *whole book*, then read the sentence out loud *again* so they know which one, then say the new sentence. That's three copies of a lot of words.
+
+hashpatch gives every line in the book a tiny sticker, like `42:ab3f`. Now you just say "replace sticker 42:ab3f with this new sentence." No re-reading. And if someone changed the book since you looked, the sticker won't match and nothing happens, so it is safe.
+
+It also lets you look at just the *chapter titles* (`outline`), or just the lines with a word you care about (`grep`), instead of the whole book.
+
+### rerun (explain like I'm 5)
+
+You run your tests. They print 300 lines. You fix one thing and run again. They print 300 lines again, and 299 of them are exactly the same as before.
+
+rerun remembers what the tests said last time and only tells you *what's different*. If nothing changed, it says "nothing changed" in one line. It also ignores stuff that always looks different but doesn't matter, like the time on the clock or how many milliseconds something took.
+
+### probe (explain like I'm 5)
+
+You want to know what buttons are on a remote control. The old way: read the entire instruction manual. probe just *picks up the remote and looks at it*. It imports the module and asks the running program "what functions do you have, and what do they take?" You get one line per function instead of the whole file. It even sees buttons the manual forgot to mention.
 
 ### seen (explain like I'm 5)
 
@@ -341,39 +362,19 @@ Shapers nest: `$SEEN $MINE npm run build`, `$TR $RR pytest -q`, `$AL $SD --cache
 
 ---
 
-## hashpatch (explain like I'm 5)
-
-Imagine you want your friend to fix one sentence in a book. The old way: you read them the *whole book*, then read the sentence out loud *again* so they know which one, then say the new sentence. That's three copies of a lot of words.
-
-hashpatch gives every line in the book a tiny sticker, like `42:ab3f`. Now you just say "replace sticker 42:ab3f with this new sentence." No re-reading. And if someone changed the book since you looked, the sticker won't match and nothing happens, so it is safe.
-
-It also lets you look at just the *chapter titles* (`outline`), or just the lines with a word you care about (`grep`), instead of the whole book.
-
-## rerun (explain like I'm 5)
-
-You run your tests. They print 300 lines. You fix one thing and run again. They print 300 lines again, and 299 of them are exactly the same as before.
-
-rerun remembers what the tests said last time and only tells you *what's different*. If nothing changed, it says "nothing changed" in one line. It also ignores stuff that always looks different but doesn't matter, like the time on the clock or how many milliseconds something took.
-
-## probe (explain like I'm 5)
-
-You want to know what buttons are on a remote control. The old way: read the entire instruction manual. probe just *picks up the remote and looks at it*. It imports the module and asks the running program "what functions do you have, and what do they take?" You get one line per function instead of the whole file. It even sees buttons the manual forgot to mention.
-
----
-
 ## Test results
 
-`python tests.py` builds throwaway repos/dirs in temp locations and exercises every script and hook (edit, rename, wrap, move, diff attribution, fold, alias round trip, trace dedupe, template mining, JSON/CSV shaping, memo staleness, budget deny/allow, fd/rg fallbacks, installer dry run). Four `unittest.TestCase` classes: `EnforceHookTests` (the enforce-nitro-bash hook, 47 allow/deny cases including the fd/sd/jq rules), `CoreSkillTests` (hashpatch, rerun, probe - 14 cases), `SkillsTests` (the remaining 12 skills, their hooks, and `q.list_files` agreement between `fd` and `os.walk`), and `InstallerTests` (dry run prints the disclaimer and checks every tool without writing).
+`python tests.py` builds throwaway repos/dirs in temp locations and exercises every script and hook (edit, rename, wrap, move, diff attribution, fold, alias round trip, trace dedupe, template mining, JSON/CSV shaping, memo staleness, budget deny/allow, fd/rg fallbacks, installer dry run). Five `unittest.TestCase` classes: `EnforceHookTests` (the enforce-nitro-bash hook, 47 allow/deny cases including the fd/sd/jq rules), `CoreSkillTests` (hashpatch, rerun, probe - 14 cases), `SkillsTests` (the remaining 12 skills, their hooks, and `q.list_files` agreement between `fd` and `os.walk`), `InstallerTests` (dry run prints the disclaimer and checks every tool without writing), and `BenchTests` (every `bench.py` scenario runs and yields a real measurement, and no skill is left without one).
 
 Latest run:
 
 ```
-Ran 29 tests in 5.2s
+Ran 33 tests in 12.2s
 
 OK
 ```
 
-All 29 tests pass. Run it yourself with:
+All 33 tests pass. Run it yourself with:
 
 ```
 python tests.py
@@ -385,37 +386,85 @@ python tests.py
 
 ### How many tokens does this save?
 
-Measured on real inputs (Python's `json/encoder.py`, ~4,200 tokens) and simulated test loops. Tokens approximated as characters / 4. Both the generous and the fair baseline are shown, because the answer depends heavily on what the agent would have done otherwise.
+Every skill has a scenario in `bench.py`, which builds a fixture, runs the
+command an agent would have run without the skill, runs the skill, and counts
+both. Tokens are approximated as characters / 4. Reproduce the whole table with:
 
-| Task | Baseline | With skill | Saved |
-|---|---|---|---|
-| Edit one function in a 4k-token file | Read whole file + Edit (old + new text) | outline + view slice + patch | **82%** |
-| Same edit | Read a 60-line range + Edit | outline + view slice + patch | **~0%** |
-| Learn a module's API | Read whole file | probe one-liners | **93%** |
-| 4-run edit/test loop, 10-line output | full output every run | baseline + diffs | **47%** |
-| 4-run edit/test loop, 300-line output | full output every run | baseline + diffs | **73%** |
+```
+python bench.py            # summary
+python bench.py --markdown # this table
+```
 
-What that table says honestly:
+| skill | task | baseline | with skill | baseline tok | skill tok | saved |
+|---|---|---|---|---|---|---|
+| **hashpatch** | Edit one function in a 60-function file | Read whole file + Edit (old + new text) | outline + grep + patch | 3,548 | 1,404 | **60%** |
+| **hashpatch-fair** | Same edit, disciplined ranged read | Read a 60-line range + Edit | grep + patch | 360 | 497 | **-38%** |
+| **probe** | Learn a module's API | Read whole module source | probe signatures | 3,525 | 159 | **95%** |
+| **rerun** | Second run of a 300-line suite | full 300-line output every run | diff vs stored baseline | 1,577 | 20 | **99%** |
+| **seen** | Re-showing output already seen | re-printing output already shown | folded pointers to earlier blocks | 3,525 | 805 | **77%** |
+| **alias** | rg hits across a deep tree | repeated deep paths verbatim | §N tokens + one legend | 2,385 | 1,383 | **42%** |
+| **believe** | Confirm 4 facts about a file | re-reading the file to confirm | OK/MISMATCH per claim | 3,525 | 60 | **98%** |
+| **refactor** | Rename a symbol across 6 files | one patch per file (old + new per hit) | one line of intent, one line per file | 603 | 39 | **94%** |
+| **mine** | A 4,000-line build log | dumping a 4,000-line build log | templates with counts | 58,918 | 94 | **100%** |
+| **shape** | A 400-item JSON response | cat a 400-item JSON response | schema + 3 samples | 20,538 | 125 | **99%** |
+| **trace** | The same crash twice | full traceback, twice while iterating | user frames once, then a pointer | 555 | 230 | **59%** |
+| **sdiff** | Review a mixed change | git diff | one row per changed symbol, classified | 116 | 61 | **47%** |
+| **q** | Structural question over 5 files | 4 chained rg calls with overlapping hits | 2 index queries | 4,780 | 37 | **99%** |
+| **blast** | Find callers before an edit | rg -C 3 for every mention | def + callers grouped + callees | 782 | 585 | **25%** |
+| **recall** | Re-answer a past investigation | re-deriving the answer with rg + reads | saved answer, refs revalidated | 349 | 39 | **89%** |
+| **budget** | Predict a flood before running it | running the command and flooding context | predicted size, denied before the flood | 58,918 | 4 | **100%** |
 
-- **hashpatch** pays off when the alternative is a whole-file read (the default Read behaviour), and on the *second and later* edits to the same file, because the post-apply report replaces a re-read. On one surgical edit with a disciplined ranged read, it is a wash. Its unique value there is safety, not tokens: stale anchors are rejected instead of silently mis-editing.
-- **probe** is the biggest single win and it is consistent. The output is a fixed small size regardless of how big the source is.
-- **rerun** scales with output size. The bigger and noisier the test suite, the more it saves, because diffs stay small while full output grows.
+The scenarios are chosen to be the case the skill exists for, and they are not
+all equally favourable. What the numbers actually say:
 
-**Estimated blended saving with all three skills together: roughly 25 to 40% of total session tokens** on typical edit-test-iterate work in an existing codebase. Assumptions:
+- **The shapers are the big, reliable wins.** `mine`, `shape`, `budget`, `q`,
+  `rerun` and `probe` all clear 95%, because their output size is fixed by the
+  *schema* of the answer, not by the size of the input. A 4,000-line log and a
+  400,000-line log both mine to about 20 lines.
+- **The memory skills pay off on the second encounter**, not the first.
+  `seen` (77%), `trace` (59%), `believe` (98%) and `recall` (89%) all measure
+  the repeat, because the first run is the baseline they store. In a session
+  that never revisits anything, they save nothing — that is the honest case.
+- **`hashpatch` depends entirely on the baseline you compare against.** Against
+  a whole-file read (what `Read` does by default) it saves 60%. Against a
+  disciplined 60-line ranged read it *costs* 38%, which is why that row is in
+  the table. Its value in that case is safety rather than tokens: a stale
+  anchor is rejected instead of silently mis-editing. It also wins on the
+  second and later edits to one file, since the post-apply anchors replace a
+  re-read.
+- **`alias` (42%) and `blast` (25%) are the weakest**, and both are
+  input-shape-dependent. `alias` only wins when a few long strings recur many
+  times; a unique long name per line compresses to nothing and the legend is
+  pure overhead. `blast` beats `rg -C 3` mainly by not printing overlapping
+  context windows.
 
-- Tool traffic (reads, edits, command output) is 60 to 80% of a session. System prompt, conversation, and reasoning are untouched.
-- Reads and edits are about half of tool traffic, cut by ~50% on a realistic mix of whole-file and ranged habits.
-- Command output is about a third, cut by ~60% (weighted toward real suites, not 10-line toys).
+**Blended expectation: roughly 25 to 40% of total session tokens** on typical
+edit-test-iterate work in an existing codebase. The per-scenario percentages
+above are much higher than that, and the gap is deliberate — the scenarios
+measure the tool traffic a skill touches, while a session also contains system
+prompt, conversation, reasoning and one-off commands that no skill changes.
+Assumptions behind the blend:
+
+- Tool traffic (reads, edits, command output) is 60 to 80% of a session.
+- Reads and edits are about half of tool traffic, cut by ~50% on a realistic
+  mix of whole-file and ranged habits.
+- Command output is about a third, cut by ~60% (weighted toward real suites,
+  not 10-line toys).
 - The remainder (git, listings, one-off commands) is unchanged.
-- The three SKILL.md files cost ~500 tokens per session.
+- The SKILL.md files cost ~500 tokens per session for the three core skills;
+  the full set is loaded on demand, not up front.
 
-An earlier draft of this README claimed 45 to 60%. That number assumed every read was a whole-file read; the fair-baseline measurement above corrected it. Savings are smallest on greenfield work and largest on maintenance work with big files and noisy test output.
+An earlier draft of this README claimed 45 to 60% and measured only hashpatch,
+rerun and probe. The fair-baseline rows above corrected the number, and the
+remaining twelve skills are now measured rather than asserted. Savings are
+smallest on greenfield work and largest on maintenance work with big files and
+noisy output.
 
 One effect not in the table: everything an agent reads stays in context and is re-sent on every later turn. Cutting a 4k-token read to 300 tokens saves ~3.7k tokens *per subsequent turn*, so the compounding benefit over a long session is larger than the per-task numbers suggest.
 
 ### Correctness and security review
 
-All three scripts were reviewed and run through a 19-case regression suite (edge cases: trailing blank lines in patch bodies, inserts inside replaced ranges, overlapping hunks, non-UTF-8 bytes, missing trailing newline, CRLF, file creation, malformed anchors, carriage returns in command output, timestamp/duration/temp-path churn, exit-code transitions, shell pipelines, Windows drive letters in module paths, missing modules). Bugs found and fixed during review: inserts inside a replaced range were silently swallowed; non-UTF-8 files crashed; the last blank line of a patch body was dropped; rerun swallowed the exit code on baseline runs and split lines on stray carriage returns; probe split `C:\path` on the drive colon.
+The three core scripts were reviewed and run through a 19-case regression suite (edge cases: trailing blank lines in patch bodies, inserts inside replaced ranges, overlapping hunks, non-UTF-8 bytes, missing trailing newline, CRLF, file creation, malformed anchors, carriage returns in command output, timestamp/duration/temp-path churn, exit-code transitions, shell pipelines, Windows drive letters in module paths, missing modules). Bugs found and fixed during review: inserts inside a replaced range were silently swallowed; non-UTF-8 files crashed; the last blank line of a patch body was dropped; rerun swallowed the exit code on baseline runs and split lines on stray carriage returns; probe split `C:\path` on the drive colon.
 
 Security properties:
 
