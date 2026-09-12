@@ -1,4 +1,5 @@
 # Nitro Skills by Dextrata
+[nitroskills.com](https://nitroskills.com) - a gift to the community from [Dextrata](https://dextrata.com)
 
 Skills that cut the number of tokens an AI coding agent burns while working. Each one is a short `SKILL.md` (the only part that ever enters the model's context) plus a script that gets *executed*, never read. That is the trick: the clever logic costs zero tokens no matter how many times it is reused.
 
