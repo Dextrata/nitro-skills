@@ -447,10 +447,10 @@ class SkillsTests(unittest.TestCase):
 
 
 class InstallerTests(unittest.TestCase):
-    """install.py: dry run prints the disclaimer and checks every tool without writing."""
+    """install.py: dry run and --no-tools never run a package manager or write anything."""
 
     def test_dry_run_lists_tools_and_disclaimer(self):
-        out, rc = run([PY, os.path.join(HERE, "install.py"), "--dry-run"], HERE)
+        out, rc = run([PY, os.path.join(HERE, "install.py"), "--dry-run", "--yes"], HERE)
         self.assertEqual(rc, 0, out)
         for s in ("DISCLAIMER", "AI-generated output", "Limitation of liability", "ripgrep", "fd", "sd", "jq", "dry run"):
             self.assertIn(s, out)
@@ -461,6 +461,22 @@ class InstallerTests(unittest.TestCase):
         spec.loader.exec_module(inst)
         for name, _, _, _, _ in inst.TOOLS:
             self.assertIn("install", inst.tool_hint(name) + " install")
+
+    def test_no_tools_prints_hints_without_running(self):
+        out, rc = run([PY, os.path.join(HERE, "install.py"), "--dry-run", "--no-tools", "--yes"], HERE)
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("running:", out)
+        if "not found on PATH" in out:
+            self.assertIn("Install with:", out)
+
+    def test_disclaimer_must_be_accepted(self):
+        out, rc = run([PY, os.path.join(HERE, "install.py"), "--dry-run"], HERE, inp="")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("DISCLAIMER", out)
+        self.assertNotIn("Installing", out)
+        out, rc = run([PY, os.path.join(HERE, "install.py"), "--dry-run"], HERE, inp="no\n")
+        self.assertEqual(rc, 2, out)
+        self.assertNotIn("Installing", out)
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

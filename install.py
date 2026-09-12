@@ -7,9 +7,11 @@ hooks rely on (ripgrep, fd, sd; jq optional), printing an install command for
 your platform for anything missing. Safe to re-run.
 
 Usage:
-    python install.py            # install skills + all hooks
+    python install.py            # install skills, hooks, and any missing tools
     python install.py --no-hooks # copy skills only, skip settings.json
+    python install.py --no-tools # do not run package managers; only print hints
     python install.py --dry-run  # show what would happen, change nothing
+    python install.py --yes      # accept the disclaimer non-interactively (CI/scripts)
 """
 import json
 import os
@@ -29,6 +31,9 @@ SETTINGS_PATH = os.path.join(CLAUDE_HOME, "settings.json")
 
 DRY = "--dry-run" in sys.argv
 NO_HOOKS = "--no-hooks" in sys.argv
+NO_TOOLS = "--no-tools" in sys.argv
+YES = "--yes" in sys.argv or "-y" in sys.argv
+ACCEPT = "I AGREE"
 
 
 def say(msg):
@@ -149,9 +154,12 @@ What this installer does:
   * copies the nitro-skills skill folders into ~/.claude/skills/
   * copies the hook scripts into ~/.claude/hooks/
   * merges PreToolUse/PostToolUse hook entries into ~/.claude/settings.json
-  * checks whether ripgrep (rg), fd, sd and jq are on your PATH and, if not,
-    prints a suggested install command. It does NOT run that command, download
-    anything, or install any software by itself.
+  * checks whether ripgrep (rg), fd, sd and jq are on your PATH and, for any
+    that are missing, RUNS your system package manager (winget / Chocolatey /
+    Scoop on Windows, Homebrew on macOS, apt / dnf / pacman / zypper / apk on
+    Linux, cargo as a fallback) to install them. Linux package managers are
+    invoked with sudo and may prompt for your password. Pass --no-tools to
+    only print the commands instead, or --dry-run to change nothing.
 
 Third-party software. ripgrep, fd, sd, jq, and any package manager (Homebrew,
 apt, dnf, pacman, zypper, apk, winget, Chocolatey, Scoop, cargo) you use to
@@ -194,10 +202,28 @@ and copyright holders from any claim, demand, loss, or expense (including
 reasonable legal fees) arising out of your use of the software, third-party
 tools, or AI-generated output.
 
-By continuing you acknowledge that you have read and understood this
-disclaimer and accept full responsibility for the consequences of installing
-and using this software. If you do not agree, stop now and do not install.
+Nothing has been installed yet. To accept this disclaimer and continue, type
+exactly  I AGREE  at the prompt below. Anything else aborts the installer.
+Pass --yes to accept non-interactively (for scripts and CI); doing so is the
+same acceptance as typing it.
 """
+
+
+def accept_disclaimer():
+    if YES:
+        say("(disclaimer accepted via --yes)")
+        return
+    if not sys.stdin or not sys.stdin.isatty():
+        say("No interactive terminal to accept the disclaimer on. Re-run with --yes to accept it, or run from a terminal.")
+        sys.exit(2)
+    try:
+        answer = input(f"Type {ACCEPT} to accept and continue: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        answer = ""
+    if answer != ACCEPT:
+        say("Disclaimer not accepted. Nothing was changed.")
+        sys.exit(2)
+    say("")
 
 # (name, executables to look for, required, per-package-manager package id,
 #  release page). fd is `fdfind` on Debian/Ubuntu; the skills accept both, but
@@ -231,43 +257,104 @@ LINUX_MANAGERS = (
 )
 
 
-def tool_hint(name):
+def install_commands(name):
+    """Candidate install commands for this platform, first is preferred."""
     _, _, _, pkgs, releases = next(t for t in TOOLS if t[0] == name)
     system = platform.system()
-    cargo = f"cargo install {pkgs['cargo']}" if pkgs.get("cargo") else None
+    cmds = []
     if system == "Darwin":
-        return f"brew install {pkgs['brew']}"
-    if system == "Windows":
-        alts = [f"{m} install {pkgs[m]}" for m in ("choco", "scoop") if pkgs.get(m)]
-        return f"winget install {pkgs['winget']}" + (f"   (or: {' / '.join(alts)})" if alts else "")
-    for mgr, fmt in LINUX_MANAGERS:
-        if shutil.which(mgr):
-            if pkgs.get(mgr):
-                return fmt.format(pkgs[mgr])
-            break
-    return (cargo or f"download from {releases}") + (f"   (or download from {releases})" if cargo else "")
+        if shutil.which("brew") and pkgs.get("brew"):
+            cmds.append(["brew", "install", pkgs["brew"]])
+    elif system == "Windows":
+        for mgr in ("winget", "choco", "scoop"):
+            if pkgs.get(mgr) and shutil.which(mgr):
+                args = ["install", pkgs[mgr]]
+                if mgr == "winget":
+                    args += ["--accept-source-agreements", "--accept-package-agreements", "-e"]
+                if mgr == "choco":
+                    args.append("-y")
+                cmds.append([mgr] + args)
+    else:
+        for mgr, fmt in LINUX_MANAGERS:
+            if shutil.which(mgr) and pkgs.get(mgr):
+                cmd = fmt.format(pkgs[mgr]).split()
+                if mgr in ("apt", "dnf", "zypper"):
+                    cmd.append("-y")
+                if mgr == "pacman":
+                    cmd.append("--noconfirm")
+                cmds.append(cmd)
+                break
+    if pkgs.get("cargo") and shutil.which("cargo"):
+        cmds.append(["cargo", "install", pkgs["cargo"]])
+    return cmds, releases
+
+
+def tool_hint(name):
+    cmds, releases = install_commands(name)
+    if cmds:
+        return " ".join(cmds[0]) + (f"   (or: {' / '.join(' '.join(c) for c in cmds[1:])})" if len(cmds) > 1 else "")
+    _, _, _, pkgs, _ = next(t for t in TOOLS if t[0] == name)
+    system = platform.system()
+    if system == "Windows" and pkgs.get("winget"):
+        return f"winget install {pkgs['winget']}   (no package manager found on PATH; or download from {releases})"
+    if system == "Darwin" and pkgs.get("brew"):
+        return f"brew install {pkgs['brew']}   (Homebrew not found on PATH; or download from {releases})"
+    return f"download from {releases}" + (f"   (or: cargo install {pkgs['cargo']})" if pkgs.get("cargo") else "")
+
+
+def find_tool(exes):
+    return next((shutil.which(e) for e in exes if shutil.which(e)), None)
+
+
+def install_tool(name, exes):
+    cmds, releases = install_commands(name)
+    if not cmds:
+        say(f"  no package manager found to install {name}; install it manually: {tool_hint(name)}")
+        return None
+    for cmd in cmds:
+        say(f"  running: {' '.join(cmd)}")
+        try:
+            rc = subprocess.run(cmd).returncode
+        except OSError as e:
+            say(f"  could not run {cmd[0]}: {e}")
+            continue
+        if rc == 0:
+            found = find_tool(exes)
+            if found:
+                return found
+            say(f"  {cmd[0]} reported success but {name} is not on PATH yet; open a new terminal after installing.")
+            return "installed"
+        say(f"  {cmd[0]} exited with {rc}, trying the next option" if cmd is not cmds[-1] else f"  {cmd[0]} exited with {rc}")
+    say(f"  could not install {name}; install it manually from {releases}")
+    return None
 
 
 def check_tools():
     missing_required = []
     for name, exes, required, _, _ in TOOLS:
-        found = next((shutil.which(e) for e in exes if shutil.which(e)), None)
-        if found:
-            try:
-                out = subprocess.run([found, "--version"], capture_output=True, text=True)
-                version = out.stdout.strip().splitlines()[0] if out.stdout.strip() else found
-                say(f"{name} found: {version}")
-            except OSError:
-                say(f"{name} found on PATH ({found}) but could not run it")
-            if name == "fd" and os.path.basename(found).lower().startswith("fdfind"):
-                say("  note: installed as `fdfind`; add a `fd` symlink or alias so hook messages match: "
-                    "ln -s \"$(command -v fdfind)\" ~/.local/bin/fd")
-            continue
-        tag = "required by the hooks and skills" if required else "optional, used for narrowing JSON after `shape`"
-        say(f"{name} not found on PATH ({tag}).")
-        say(f"  Install with: {tool_hint(name)}")
-        if required:
-            missing_required.append(name)
+        found = find_tool(exes)
+        if not found:
+            tag = "required by the hooks and skills" if required else "optional, used for narrowing JSON after `shape`"
+            say(f"{name} not found on PATH ({tag}).")
+            if DRY or NO_TOOLS:
+                say(f"  Install with: {tool_hint(name)}")
+            else:
+                found = install_tool(name, exes)
+            if not found:
+                if required:
+                    missing_required.append(name)
+                continue
+            if found == "installed":
+                continue
+        try:
+            out = subprocess.run([found, "--version"], capture_output=True, text=True)
+            version = out.stdout.strip().splitlines()[0] if out.stdout.strip() else found
+            say(f"{name} found: {version}")
+        except OSError:
+            say(f"{name} found on PATH ({found}) but could not run it")
+        if name == "fd" and os.path.basename(found).lower().startswith("fdfind"):
+            say("  note: installed as `fdfind`; add a `fd` symlink or alias so hook messages match: "
+                "ln -s \"$(command -v fdfind)\" ~/.local/bin/fd")
     if missing_required:
         say(f"Missing required tools: {', '.join(missing_required)}. Install them before relying on the hooks.")
 
@@ -289,6 +376,7 @@ def main():
     say(f"nitro-skills installer ({platform.system()})")
     say("")
     say(DISCLAIMER)
+    accept_disclaimer()
     if DRY:
         say("-- dry run: no files will be written --")
     say("")

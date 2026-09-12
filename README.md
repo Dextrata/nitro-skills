@@ -21,18 +21,24 @@ works unchanged on Windows, Linux, and macOS:
   entries.
 - Checks for Python, Node (optional, only for `probe js`), and the CLI tools
   the skills and hooks rely on - ripgrep, fd, sd (required) and jq (optional) -
-  and prints the right install command for your platform for anything missing.
-  The installer never downloads or installs third-party software itself.
+  and, for anything missing, runs your system package manager (winget/choco/
+  scoop, Homebrew, apt/dnf/pacman/zypper/apk, cargo as fallback) to install it.
+  Linux package managers are run with `sudo` and may prompt for your password.
+  `--no-tools` prints the commands instead of running them.
 
 Flags:
 
 ```
 python install.py --dry-run    # show what would happen, change nothing
 python install.py --no-hooks   # copy skills only, skip settings.json
+python install.py --no-tools   # do not run package managers; only print install hints
+python install.py --yes        # accept the disclaimer non-interactively (scripts/CI)
 ```
 
-The installer prints a disclaimer before it does anything; the same text is in
-[Disclaimer](#disclaimer) below. Read it.
+The installer prints a disclaimer and stops until you type `I AGREE`; nothing
+is copied, written, or installed before that. Without a terminal (CI, piped
+stdin) it exits with code 2 unless `--yes` is passed, which counts as the same
+acceptance. The same text is in [Disclaimer](#disclaimer) below. Read it.
 
 Requires only Python 3 (already a dependency of every skill). Restart Claude
 Code, or start a new session, after installing so it picks up the new
@@ -87,8 +93,8 @@ installed. Each one exists to cut output (and therefore tokens), not just time:
 `refactor` also uses `rg -l` to pre-select the files that mention a name, so a
 rename across a large tree reads only the files that need it.
 
-Install them on your platform (the installer prints the same commands for
-whatever is missing):
+The installer runs these for you for whatever is missing (`--no-tools` to only
+print them). To install by hand:
 
 **macOS:**
 ```
@@ -425,9 +431,10 @@ Security properties:
 **What the installer does.** `install.py` copies the skill folders into
 `~/.claude/skills/`, copies the hook scripts into `~/.claude/hooks/`, merges
 hook entries into `~/.claude/settings.json`, and checks whether `rg`, `fd`,
-`sd` and `jq` are on your PATH. If one is missing it prints a suggested install
-command. It does **not** run that command, download anything, or install any
-software by itself.
+`sd` and `jq` are on your PATH. For any that are missing it runs your system
+package manager (winget, Chocolatey, Scoop, Homebrew, apt, dnf, pacman, zypper,
+apk, or cargo) to install them, using `sudo` on Linux. `--no-tools` makes it
+print the commands instead; `--dry-run` changes nothing.
 
 **Third-party software.** ripgrep, fd, sd, jq, and every package manager you
 might use to obtain them (Homebrew, apt, dnf, pacman, zypper, apk, winget,
