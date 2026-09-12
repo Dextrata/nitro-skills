@@ -1,6 +1,8 @@
 # nitro-skills
 
-Token-saving skills: `hashpatch`, `rerun`, `probe`. Optimizing token usage is a
+Token-saving skills: `hashpatch`, `rerun`, `probe`, `seen`, `alias`,
+`believe`, `refactor`, `mine`, `shape`, `trace`, `sdiff`, `q`, `blast`,
+`recall`, `budget`. Optimizing token usage is a
 priority in this repo, so treat the rules below as requirements, not
 suggestions — use the skill whenever its trigger applies, don't fall back to
 the default tool just because it's more familiar.
@@ -23,6 +25,37 @@ the default tool just because it's more familiar.
   grep/egrep/fgrep/findstr/Select-String. When piping into rg pass an explicit
   dash (`cmd | rg PATTERN -`): some builds ignore the pipe and silently search
   the working tree instead. Or redirect to a file first and search that.
+- **Finding files by name or extension** -> use `fd` (`fd PATTERN [DIR]`,
+  `-e py`, `-t f`), never `find`, `ls -R`, `tree`, or `Get-ChildItem
+  -Recurse`. `fd` skips .gitignore'd and hidden paths, so the listing is short.
+- **Text find-and-replace in a pipeline** -> use `sd` (`cmd | sd 'old' 'new'`,
+  `$1` for groups, `-s` literal), never `sed`. Editing files in place is still
+  `refactor` (`replace`) or `hashpatch`; `sd FILE` is blocked because the edit
+  is unanchored.
+- **Narrowing JSON after `shape`** -> `--path`, or a narrowing `jq` filter
+  (`cmd | jq -c '.items[].id'`). Never `jq .` on a file or response.
+- **Any command whose output may repeat lines already shown** (git diff, git
+  log, rg with context, second test run) â†’ wrap in `seen`.
+- **Output dense with long paths/hashes/dotted names** â†’ wrap in `alias`; refer
+  to aliased strings as `Â§N` afterwards.
+- **Confirming something you believe about a file you already saw** (a
+  signature, members, an import, a call, a literal) â†’ `believe`, never a
+  re-view.
+- **Mechanical edits: rename, add-import, wrap a range, delete/move a symbol,
+  regex across files** â†’ `refactor`, not one hashpatch patch per file.
+- **Log-like output over ~100 lines** (build/server/CI/docker logs) â†’ `mine`.
+- **JSON/CSV/table output or files** (curl, gh/aws/kubectl --json, package
+  lockfiles, exports) â†’ `shape`, then `--path`.
+- **Anything that may print a stack trace** â†’ wrap in `trace`.
+- **Reviewing changes** â†’ `sdiff` instead of bare `git diff`/`git show`.
+- **A structural code question that would take 2+ rg calls** ("who calls X",
+  "which handlers are async", "outline of module M") â†’ `q`.
+- **Before changing a signature, renaming, or deleting** â†’ `blast` once
+  instead of grepping for callers.
+- **Starting a "where/how is X handled" investigation** â†’ `recall ask` first;
+  `recall save` with file:line refs when done.
+- **A command denied by the budget hook** â†’ re-issue it through the shaper the
+  message names; `budget report` shows what is eating tokens.
 
 ## Non-triggers (use judgment, skill is optional)
 

@@ -2,55 +2,141 @@
 
 Skills that cut the number of tokens an AI coding agent burns while working. Each one is a short `SKILL.md` (the only part that ever enters the model's context) plus a script that gets *executed*, never read. That is the trick: the clever logic costs zero tokens no matter how many times it is reused.
 
-## Install
+The first three (`hashpatch`, `rerun`, `probe`) shrink reads, edits and repeated command output. The rest (`seen`, `alias`, `believe`, `refactor`, `mine`, `shape`, `trace`, `sdiff`, `q`, `blast`, `recall`, `budget`) attack everything else: repeated output, long strings, reassurance reads, mechanical edits, logs, payloads, traces, diffs, search hops, re-derived facts, and unbounded floods. See [Skill reference](#skill-reference) below.
 
-Copy each folder into `~/.claude/skills/` (global) or `.claude/skills/` (per project). The SKILL.md one-liners reference the scripts via `$HOME/.claude/skills/...` (works on macOS, Linux, and Windows) rather than `~` because PowerShell does not expand `~` inside quoted arguments:
+## Automatic install
+
+```
+python install.py
+```
+
+This installs everything into the global Claude directory (`~/.claude`), and
+works unchanged on Windows, Linux, and macOS:
+
+- Copies all 15 skill folders into `~/.claude/skills/`.
+- Copies all 5 hooks into `~/.claude/hooks/`.
+- Merges the hooks into `~/.claude/settings.json` (`PreToolUse`/`PostToolUse`
+  entries on the `Bash|PowerShell` and `Read` matchers), without touching any
+  existing settings you already have. Safe to re-run — it does not duplicate
+  entries.
+- Checks for Python, Node (optional, only for `probe js`), and the CLI tools
+  the skills and hooks rely on - ripgrep, fd, sd (required) and jq (optional) -
+  and prints the right install command for your platform for anything missing.
+  The installer never downloads or installs third-party software itself.
+
+Flags:
+
+```
+python install.py --dry-run    # show what would happen, change nothing
+python install.py --no-hooks   # copy skills only, skip settings.json
+```
+
+The installer prints a disclaimer before it does anything; the same text is in
+[Disclaimer](#disclaimer) below. Read it.
+
+Requires only Python 3 (already a dependency of every skill). Restart Claude
+Code, or start a new session, after installing so it picks up the new
+`settings.json`.
+
+You should also add rules to your project's `CLAUDE.md` to document when each
+skill is required — installing/enforcing the hooks makes usage *mechanical*,
+but a `CLAUDE.md` makes it *legible* to the agent. See [CLAUDE.md](CLAUDE.md)
+in this repo for a working example you can adapt.
+
+## Manual install
+
+If you'd rather install by hand, or per-project instead of globally, copy
+each folder into `~/.claude/skills/` (global) or `.claude/skills/` (per
+project). The SKILL.md one-liners reference the scripts via
+`$HOME/.claude/skills/...` (works on macOS, Linux, and Windows) rather than
+`~` because PowerShell does not expand `~` inside quoted arguments:
 
 ```
 hashpatch/   SKILL.md  scripts/hp.py
 rerun/       SKILL.md  scripts/rr.py
 probe/       SKILL.md  scripts/probe.py
+seen/        SKILL.md  scripts/seen.py
+alias/       SKILL.md  scripts/al.py
+believe/     SKILL.md  scripts/believe.py
+refactor/    SKILL.md  scripts/rf.py
+mine/        SKILL.md  scripts/mine.py
+shape/       SKILL.md  scripts/shape.py
+trace/       SKILL.md  scripts/trace.py
+sdiff/       SKILL.md  scripts/sdiff.py
+q/           SKILL.md  scripts/q.py
+blast/       SKILL.md  scripts/blast.py
+recall/      SKILL.md  scripts/recall.py
+budget/      SKILL.md  scripts/budget.py
 ```
 
 Requires Python 3. `probe js` also needs Node.
 
-**ripgrep is required.** The skills and the hooks assume `rg` is the only
-search tool in use; grep, findstr and Select-String are blocked once the hook
-below is installed. Install it on your platform:
+### External tools (required)
+
+The skills and hooks assume a small set of fast, gitignore-aware CLI tools are
+the *only* ones in use, and the Bash hook blocks the slow classics once it is
+installed. Each one exists to cut output (and therefore tokens), not just time:
+
+| tool | replaces | why |
+|---|---|---|
+| **ripgrep** (`rg`) | grep, egrep, findstr, Select-String | required; the only content search the hooks allow |
+| **fd** | find, ls -R, tree, Get-ChildItem -Recurse | required; skips .gitignore'd/hidden paths so listings are short. Backs file discovery in `q`, `blast`, `refactor` |
+| **sd** | sed (stream transforms) | required; plain regex, no escaping dance, so replacements work first time. In-place `sd FILE` is blocked - file edits go through `refactor`/`hashpatch` |
+| **jq** | `python -c "import json..."`, `jq .` dumps | optional; for narrowing JSON *after* `shape`. `jq .` is blocked |
+
+`refactor` also uses `rg -l` to pre-select the files that mention a name, so a
+rename across a large tree reads only the files that need it.
+
+Install them on your platform (the installer prints the same commands for
+whatever is missing):
 
 **macOS:**
 ```
-brew install ripgrep
+brew install ripgrep fd sd jq
 ```
 
-**Linux (Debian/Ubuntu):**
+**Linux (Debian/Ubuntu):** `fd` is packaged as `fdfind`; add a symlink so the
+hook messages match. `sd` is not in the Debian/Ubuntu repos, use cargo.
 ```
-sudo apt install ripgrep
+sudo apt install ripgrep fd-find jq
+ln -s "$(command -v fdfind)" ~/.local/bin/fd
+cargo install sd
 ```
 
 **Linux (Fedora):**
 ```
-sudo dnf install ripgrep
+sudo dnf install ripgrep fd-find jq
+cargo install sd
+```
+
+**Linux (Arch):**
+```
+sudo pacman -S ripgrep fd sd jq
 ```
 
 **Windows:**
 ```
-winget install BurntSushi.ripgrep.MSVC     # Windows Package Manager
-choco install ripgrep                      # Chocolatey
-scoop install ripgrep                      # Scoop
+winget install BurntSushi.ripgrep.MSVC sharkdp.fd chmln.sd jqlang.jq   # Windows Package Manager
+choco install ripgrep fd sd-cli jq                                      # Chocolatey
+scoop install ripgrep fd sd jq                                          # Scoop
 ```
 
 **Any platform (with Rust):**
 ```
-cargo install ripgrep
+cargo install ripgrep fd-find sd
 ```
 
-Binaries for every platform are available at https://github.com/BurntSushi/ripgrep/releases.
-Verify with `rg --version`. One quirk to know: on some builds `cmd | rg PATTERN`
-ignores the pipe and silently searches the working tree instead, so always pipe
-with an explicit dash (`cmd | rg PATTERN -`) or redirect to a file and search
-that. The Bash hook enforces this.
+Release pages: [ripgrep](https://github.com/BurntSushi/ripgrep/releases),
+[fd](https://github.com/sharkdp/fd/releases), [sd](https://github.com/chmln/sd/releases),
+[jq](https://jqlang.github.io/jq/download/). Verify with `rg --version`,
+`fd --version`, `sd --version`, `jq --version`.
 
+One ripgrep quirk to know: on some builds `cmd | rg PATTERN` ignores the pipe
+and silently searches the working tree instead, so always pipe with an explicit
+dash (`cmd | rg PATTERN -`) or redirect to a file and search that. The Bash
+hook enforces this. If `fd` or `sd` is missing the skills fall back to Python
+(`os.walk`, `re`) and keep working; only the hook messages point at a tool you
+do not have.
 
 Installing the skills only makes them *available* - the agent still decides
 whether to use them. **To make usage consistent and enforce the skills, you must
@@ -99,6 +185,35 @@ Both hooks are installed per-project in `.claude/settings.json`:
 Replace `/path/to/nitro-skills` with the actual path to this repo (absolute path recommended).
 Both hooks take `python` and read the tool call as JSON on stdin.
 
+The rest add three optional hooks on the same `Bash|PowerShell` matcher.
+`expand-aliases.py` and `budget-guard.py` are `PreToolUse`; `budget-record.py`
+is `PostToolUse` (it feeds the guard's predictions):
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          { "type": "command", "command": "python /path/to/nitro-skills/hooks/enforce-nitro-bash.py" },
+          { "type": "command", "command": "python /path/to/nitro-skills/hooks/expand-aliases.py" },
+          { "type": "command", "command": "python /path/to/nitro-skills/hooks/budget-guard.py" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          { "type": "command", "command": "python /path/to/nitro-skills/hooks/budget-record.py" }
+        ]
+      }
+    ]
+  }
+}
+```
+
 **Global installation:** Add the hook paths to `~/.claude/settings.json`:
 - **Unix (macOS/Linux):** `~/.claude/settings.json`
 - **Windows:** `%USERPROFILE%\.claude\settings.json` (or `~/.claude/settings.json` with `$HOME` expansion)
@@ -119,16 +234,103 @@ the tool call as JSON on stdin.
   `outline`/`grep`/`view` or probe. Ranged reads and new files pass.
 - [hooks/enforce-nitro-bash.py](hooks/enforce-nitro-bash.py) - matcher
   `Bash|PowerShell`. Denies, in order: grep-family commands (use `rg`); `cmd |
-  rg PATTERN` without an explicit `-`; `cat`/`sed -n`/`head`/`tail`/`Get-Content`
-  dumping more than 60 lines of an existing file into context; in-place edits of
-  an existing file (`sed -i`, `perl -i`, `>`/`>>` redirection, `tee`,
-  `Set-Content`, inline `python -`/`node -e` scripts that write); and
+  rg PATTERN` without an explicit `-`; `find`/`ls -R`/`tree`/`Get-ChildItem
+  -Recurse` (use `fd`); `cat`/`sed -n`/`head`/`tail`/`Get-Content` dumping more
+  than 60 lines of an existing file into context; in-place edits of an existing
+  file (`sed -i`, `perl -i`, `sd FILE`, `>`/`>>` redirection, `tee`,
+  `Set-Content`, inline `python -`/`node -e` scripts that write); `sed` as a
+  stream transform (use `sd`); `jq .` whole-document dumps (use `shape`); and
   test/build/lint commands not wrapped in rerun. Creating a new file by
-  redirection and piping a dump onward are allowed. Append `#nitro-skip` to a
-  command that genuinely needs to bypass it.
+  redirection, `cmd | sd 'a' 'b'`, and piping a dump onward are allowed. Append
+  `#nitro-skip` to a command that genuinely needs to bypass it.
 
 The Read hook alone is not enough: an agent told to prefer the shell never
 calls Read, so the Bash hook is the one that closes the gap.
+
+- [hooks/expand-aliases.py](hooks/expand-aliases.py) - `PreToolUse`. Rewrites
+  `Â§N` tokens (assigned by the `alias` skill) in a command back to the real
+  string via `updatedInput`, so the agent can type `cat Â§3/config.py`.
+- [hooks/budget-record.py](hooks/budget-record.py) - `PostToolUse`. Records
+  lines and characters per command shape in `~/.cache/nitro/budget`.
+- [hooks/budget-guard.py](hooks/budget-guard.py) - `PreToolUse`. Denies a
+  command whose shape produced more than 120 lines last time unless it is
+  routed through a shaping skill or bounded (`| head`, `| sd`, a narrowing
+  `| jq FILTER`, `-n`, `--oneline`, `--stat`), and denies known floods on first
+  sight (unbounded `git log`, `find`/`ls -R`/`tree`, `pip list`/`npm ls`/`env`,
+  raw `curl`/`gh api`/`kubectl -o json`, `cat` or `jq .` of `.json`/`.csv`/`.log`,
+  `docker logs`). Names the shaper or tool to use (`fd`, `shape`, `mine`, ...).
+  `#nitro-skip` bypasses it.
+
+## Skill reference
+
+Each of these follows the same contract: a short `SKILL.md`, a stdlib-only
+Python script, a one-line summary tag at the end of every output with the exit
+code. All per-workspace state lives under `~/.cache/nitro/<skill>/<cwd-hash>`
+(0700 on POSIX), except `recall`, which writes `.claude/recall.jsonl` in the
+repo so it can be committed.
+
+| skill | replaces | what it prints instead |
+|---|---|---|
+| **seen** | running a command whose output you partly saw already | the new lines; every block of 4+ lines shown before folds to `[seen #7 L12-40, 29 lines]` |
+| **alias** | retyping/rereading deep paths, hashes, dotted names | `Â§N` tokens with a one-time legend; `Â§N` works in later commands (with the hook, in every command) |
+| **believe** | re-reading a file to confirm what you think is in it | `OK`/`MISMATCH` per claim, mismatches carry the truth |
+| **refactor** | one patch per file for rename / add-import / wrap / delete / move / regex | one line of intent in, one line per touched file out |
+| **mine** | dumping or tailing a build/server log | Drain-style templates with counts and first/last line; `--keep error` for verbatim errors |
+| **shape** | `cat data.json`, raw `curl`, `gh --json` | schema with types, cardinalities, min/max, 3 samples; `--path` to descend |
+| **trace** | reading a 40-line traceback | user frames + message, library frames counted, recursion collapsed, repeats become one line |
+| **sdiff** | `git diff` | one row per changed symbol, classified ws / imports / comment / moved / real; `--hunk hN` on demand |
+| **q** | 2-5 chained rg calls for a structural question | one query over a cached symbol index (kind, name, span, params, calls, decorators) |
+| **blast** | grepping for callers before an edit | def, callees, callers grouped by enclosing symbol, tests that mention it |
+| **recall** | re-deriving "where is X handled" every session | the saved answer, each `file:line` ref re-validated by line hash (FRESH / STALE) |
+| **budget** | discovering the flood after it happened | per-command token ledger; hooks deny the next oversized run and name the shaper |
+
+### seen (explain like I'm 5)
+
+You show your friend the same page of the book twice. The second time they say "I already read that page" instead of reading it aloud again. `seen` remembers every 4-line stretch it has ever shown and folds repeats into a pointer.
+
+### alias (explain like I'm 5)
+
+Instead of saying "the red house on the corner of Maple Street and Fifth Avenue next to the bakery" every time, you agree to call it "house 3". `alias` does that for long paths and ids, and the hook lets you say "house 3" back.
+
+### believe (explain like I'm 5)
+
+You do not re-read the recipe to check it says two eggs. You ask "does it say two eggs?" and get yes or "no, three". Reading to confirm a belief is the most expensive way to say yes.
+
+### refactor (explain like I'm 5)
+
+"Rename Bob to Robert everywhere" is one sentence. It should not cost you rewriting every page that mentions Bob.
+
+### mine (explain like I'm 5)
+
+A log is the same five sentences with different numbers filled in. `mine` shows you the five sentences and how often each one happened.
+
+### shape (explain like I'm 5)
+
+You do not read a phone book to learn it has names and numbers. `shape` tells you the columns, how many rows, and shows you three.
+
+### trace (explain like I'm 5)
+
+A crash report lists every room the error walked through, including forty rooms in the library's basement. `trace` shows you only the rooms in your house.
+
+### sdiff (explain like I'm 5)
+
+"What changed?" should be answered "the login function, two lines", not by reading both versions.
+
+### q / blast (explain like I'm 5)
+
+Instead of flipping through the whole book four times looking for every mention of a character, you ask the index. `blast` is the same question asked before you rewrite the character.
+
+### recall (explain like I'm 5)
+
+Yesterday you found where the keys are kept. Today you should not search the house again. `recall` writes it on the fridge, and checks the drawer is still there before trusting the note.
+
+### budget (explain like I'm 5)
+
+A grown-up who stops you before you pour the whole cereal box into the bowl, and tells you which cup to use instead.
+
+### Composition
+
+Shapers nest: `$SEEN $MINE npm run build`, `$TR $RR pytest -q`, `$AL $SD --cached`. The last tag printed is the outermost skill's; every skill passes the inner exit code through.
 
 ---
 
@@ -152,7 +354,29 @@ You want to know what buttons are on a remote control. The old way: read the ent
 
 ---
 
-## How many tokens does this save?
+## Test results
+
+`python tests.py` builds throwaway repos/dirs in temp locations and exercises every script and hook (edit, rename, wrap, move, diff attribution, fold, alias round trip, trace dedupe, template mining, JSON/CSV shaping, memo staleness, budget deny/allow, fd/rg fallbacks, installer dry run). Four `unittest.TestCase` classes: `EnforceHookTests` (the enforce-nitro-bash hook, 47 allow/deny cases including the fd/sd/jq rules), `CoreSkillTests` (hashpatch, rerun, probe - 14 cases), `SkillsTests` (the remaining 12 skills, their hooks, and `q.list_files` agreement between `fd` and `os.walk`), and `InstallerTests` (dry run prints the disclaimer and checks every tool without writing).
+
+Latest run:
+
+```
+Ran 29 tests in 5.2s
+
+OK
+```
+
+All 29 tests pass. Run it yourself with:
+
+```
+python tests.py
+```
+
+---
+
+## Anything else
+
+### How many tokens does this save?
 
 Measured on real inputs (Python's `json/encoder.py`, ~4,200 tokens) and simulated test loops. Tokens approximated as characters / 4. Both the generous and the fair baseline are shown, because the answer depends heavily on what the agent would have done otherwise.
 
@@ -182,7 +406,7 @@ An earlier draft of this README claimed 45 to 60%. That number assumed every rea
 
 One effect not in the table: everything an agent reads stays in context and is re-sent on every later turn. Cutting a 4k-token read to 300 tokens saves ~3.7k tokens *per subsequent turn*, so the compounding benefit over a long session is larger than the per-task numbers suggest.
 
-## Correctness and security review
+### Correctness and security review
 
 All three scripts were reviewed and run through a 19-case regression suite (edge cases: trailing blank lines in patch bodies, inserts inside replaced ranges, overlapping hunks, non-UTF-8 bytes, missing trailing newline, CRLF, file creation, malformed anchors, carriage returns in command output, timestamp/duration/temp-path churn, exit-code transitions, shell pipelines, Windows drive letters in module paths, missing modules). Bugs found and fixed during review: inserts inside a replaced range were silently swallowed; non-UTF-8 files crashed; the last blank line of a patch body was dropped; rerun swallowed the exit code on baseline runs and split lines on stray carriage returns; probe split `C:\path` on the drive colon.
 
@@ -193,3 +417,59 @@ Security properties:
 - **rerun** runs a single-argument command through the shell by design so pipelines work; multi-argument commands are passed as an argv list with no shell. Cached output is stored under `~/.cache/rerun` in plaintext, so anything a command prints (including secrets) lands there. The directory is created mode 0700 on POSIX; on Windows it inherits your profile's ACL. Use `--forget` after commands that print credentials.
 - **probe** executes module top-level code and prepends the current directory to `sys.path`, so a hostile repo could shadow a standard-library module name. This is the same exposure as running the project's tests. The skill instructs the agent not to probe modules that start servers, touch files, or need secrets.
 - **Anchor hashes and cached output are data, not instructions.** Nothing in any script interprets file or command content as commands.
+
+---
+
+## Disclaimer
+
+**What the installer does.** `install.py` copies the skill folders into
+`~/.claude/skills/`, copies the hook scripts into `~/.claude/hooks/`, merges
+hook entries into `~/.claude/settings.json`, and checks whether `rg`, `fd`,
+`sd` and `jq` are on your PATH. If one is missing it prints a suggested install
+command. It does **not** run that command, download anything, or install any
+software by itself.
+
+**Third-party software.** ripgrep, fd, sd, jq, and every package manager you
+might use to obtain them (Homebrew, apt, dnf, pacman, zypper, apk, winget,
+Chocolatey, Scoop, cargo) are independent third-party projects that are not
+developed, distributed, audited, endorsed, or controlled by the nitro-skills
+authors. Suggested install commands are provided for convenience only. You
+alone are responsible for verifying the source, integrity, licence, and
+security of any software you install, and for any vulnerability, defect,
+malware, supply-chain compromise, data loss, or other harm arising from it.
+
+**AI-generated output.** nitro-skills is used by AI coding agents. AI systems
+make mistakes: they can misread code, produce incorrect or insecure edits,
+delete or overwrite data, run unintended commands, and report success when
+something has failed. Nothing produced with or by these skills should be relied
+upon without independent human review. Always inspect diffs, run your own
+tests, and keep backups and version control. You are solely responsible for
+every change made in your environment while these skills and hooks are in use.
+
+**No warranty.** THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, ACCURACY, AND
+NON-INFRINGEMENT. No advice or information, whether oral or written, obtained
+from the authors or through the software creates any warranty.
+
+**Limitation of liability.** TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE
+LAW, IN NO EVENT SHALL THE AUTHORS, CONTRIBUTORS, OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY WHATSOEVER - WHETHER IN AN
+ACTION OF CONTRACT, TORT (INCLUDING NEGLIGENCE), STRICT LIABILITY, OR
+OTHERWISE - INCLUDING WITHOUT LIMITATION DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, CONSEQUENTIAL, OR PUNITIVE DAMAGES, LOSS OF DATA, LOSS OF PROFITS,
+BUSINESS INTERRUPTION, SECURITY BREACHES, OR THE COST OF SUBSTITUTE GOODS OR
+SERVICES, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE, ANY
+THIRD-PARTY SOFTWARE IT REFERENCES, ANY OUTPUT OF AN AI SYSTEM USING IT, OR THE
+USE OF OR OTHER DEALINGS IN THE SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGES. Some jurisdictions do not allow certain exclusions or
+limitations, in which case the above applies to the fullest extent permitted.
+
+**Indemnity.** You agree to indemnify and hold harmless the authors,
+contributors, and copyright holders from any claim, demand, loss, or expense
+(including reasonable legal fees) arising out of your use of the software,
+third-party tools, or AI-generated output.
+
+By installing or using this software you acknowledge that you have read and
+understood this disclaimer and accept full responsibility for the consequences.
+If you do not agree, do not install or use it.
