@@ -1,7 +1,23 @@
 # Nitro Skills by Dextrata
 [nitroskills.com](https://nitroskills.com) - a gift to the community from [Dextrata](https://dextrata.com)
 
-Skills that cut the number of tokens an AI coding agent burns while working. Each one is a short `SKILL.md` (the only part that ever enters the model's context) plus a script that gets *executed*, never read. That is the trick: the clever logic costs zero tokens no matter how many times it is reused.
+Skills that cut the number of tokens [Claude Code](https://claude.com/claude-code) burns while working. Each one is a short `SKILL.md` (the only part that ever enters Claude's context) plus a script that gets *executed*, never read. That is the trick: the clever logic costs zero tokens no matter how many times it is reused.
+
+> **Claude Code only.** nitro-skills is built for Claude Code and nothing else.
+> Every skill is loaded through Claude Code's `~/.claude/skills/` folder, and the
+> enforcement that makes the savings reliable comes from Claude Code's
+> `PreToolUse`/`PostToolUse` hooks in `~/.claude/settings.json`. Other AI coding
+> tools (Cursor, GitHub Copilot, Codex, Gemini CLI, Aider, Windsurf and the rest)
+> have no `SKILL.md` loader and no equivalent hook contract, so dropping this
+> repo into one of them does nothing. The scripts underneath are plain stdlib
+> Python and you can run them by hand anywhere, but the token savings only
+> materialise when Claude invokes them for you.
+>
+> **Dextrata Agent** is the one exception: it implements the same `SKILL.md` loader
+> and the same `PreToolUse`/`PostToolUse` hook contract (exit 2 + stderr, or
+> `hookSpecificOutput.permissionDecision` / `updatedInput` on stdout), so this repo
+> works there unchanged. Settings › Skills & MCP › nitro-skills clones it, runs
+> `install.py` for you, wires the hooks, and keeps the checkout fast-forwarded.
 
 The first three (`hashpatch`, `rerun`, `probe`) shrink reads, edits and repeated command output. The rest (`seen`, `alias`, `believe`, `refactor`, `mine`, `shape`, `trace`, `sdiff`, `q`, `blast`, `recall`, `budget`) attack everything else: repeated output, long strings, reassurance reads, mechanical edits, logs, payloads, traces, diffs, search hops, re-derived facts, and unbounded floods. See [Skill reference](#skill-reference) below.
 
@@ -41,7 +57,8 @@ is copied, written, or installed before that. Without a terminal (CI, piped
 stdin) it exits with code 2 unless `--yes` is passed, which counts as the same
 acceptance. The same text is in [Disclaimer](#disclaimer) below. Read it.
 
-Requires only Python 3 (already a dependency of every skill). Restart Claude
+Requires Claude Code plus Python 3 (already a dependency of every skill).
+Restart Claude
 Code, or start a new session, after installing so it picks up the new
 `settings.json`.
 
@@ -145,16 +162,16 @@ hook enforces this. If `fd` or `sd` is missing the skills fall back to Python
 (`os.walk`, `re`) and keep working; only the hook messages point at a tool you
 do not have.
 
-Installing the skills only makes them *available* - the agent still decides
+Installing the skills only makes them *available* - Claude still decides
 whether to use them. **To make usage consistent and enforce the skills, you must
-install the PreToolUse hooks** (see Hooks section below). Without them, agents will
+install the PreToolUse hooks** (see Hooks section below). Without them, Claude will
 bypass the skills and use shell commands instead. You should also add rules to your
 project's `CLAUDE.md` to document when each skill is required. See
 [CLAUDE.md](CLAUDE.md) in this repo for a working example you can adapt.
 
 ## Hooks (required for skills to work)
 
-Without the PreToolUse hooks, agents will bypass the skills and use shell commands
+Without the PreToolUse hooks, Claude will bypass the skills and use shell commands
 instead (cat/sed -i for edits, bare test commands for runs, grep for searching).
 Two `PreToolUse` hooks make skill usage mechanical and unavoidable.
 
@@ -506,9 +523,9 @@ Security properties:
   Windows they inherit your profile's ACL. Use `rerun --forget` after commands
   that print credentials, and delete `~/.cache/nitro` to clear the rest.
 - **`recall` writes into the repo by default.** Its store is
-  `.claude/recall.jsonl` when a `.claude` directory exists (so a team's agents
-  share it), otherwise `~/.cache/nitro/recall`. Treat it as committed content:
-  don't save anything into it you would not push.
+  `.claude/recall.jsonl` when a `.claude` directory exists (so a team's Claude
+  sessions share it), otherwise `~/.cache/nitro/recall`. Treat it as committed
+  content: don't save anything into it you would not push.
 - **`probe` executes module top-level code** and prepends the current directory
   to `sys.path`, so a hostile repo could shadow a standard-library module name.
   This is the same exposure as running the project's tests. The skill instructs
@@ -550,7 +567,7 @@ alone are responsible for verifying the source, integrity, licence, and
 security of any software you install, and for any vulnerability, defect,
 malware, supply-chain compromise, data loss, or other harm arising from it.
 
-**AI-generated output.** nitro-skills is used by AI coding agents. AI systems
+**AI-generated output.** nitro-skills exists to be driven by Claude Code. AI systems
 make mistakes: they can misread code, produce incorrect or insecure edits,
 delete or overwrite data, run unintended commands, and report success when
 something has failed. Nothing produced with or by these skills should be relied

@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Install nitro-skills into the global Claude directory (~/.claude).
 
+nitro-skills is for Claude Code only: the skills are loaded by Claude Code's
+skill system and enforced by its PreToolUse/PostToolUse hooks. No other AI
+coding tool reads SKILL.md or runs these hooks, so installing there does
+nothing.
+
 Copies every skill folder into ~/.claude/skills/, wires the hooks into
 ~/.claude/settings.json, and checks for the external CLI tools the skills and
 hooks rely on (ripgrep, fd, sd; jq optional), printing an install command for
@@ -150,6 +155,9 @@ def wire_settings():
 DISCLAIMER = """\
 DISCLAIMER - READ BEFORE CONTINUING
 
+For Claude Code only. These skills plug into Claude Code's skill loader and
+hook system; they do not work with any other AI coding tool.
+
 What this installer does:
   * copies the nitro-skills skill folders into ~/.claude/skills/
   * copies the hook scripts into ~/.claude/hooks/
@@ -170,7 +178,7 @@ responsible for verifying the source, integrity, licence, and security of any
 software you install, and for any vulnerability, defect, malware, supply-chain
 compromise, data loss, or other harm arising from it.
 
-AI-generated output. nitro-skills is used by AI coding agents. AI systems make
+AI-generated output. nitro-skills is driven by Claude Code, and AI systems make
 mistakes: they can misread code, produce incorrect or insecure edits, delete or
 overwrite data, run unintended commands, and report success when something has
 failed. Nothing produced with or by these skills should be relied upon without
