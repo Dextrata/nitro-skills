@@ -7,14 +7,12 @@ description: REQUIRED before reading a Python or JS module's source just to lear
 
 Reading a 400-line module to learn six function signatures costs 400 lines. Importing it and asking the runtime costs six. `probe` does runtime introspection and prints one line per symbol: kind, name, signature, first doc line.
 
-`PROBE="python $HOME/.claude/skills/probe/scripts/probe.py"`
+`nitro probe py package.module` is the short form; the nitro hook expands `nitro probe` to `python $HOME/.claude/skills/probe/scripts/probe.py`. Without the hook installed, type that path (`$HOME`, never `~`: PowerShell does not expand `~` inside quotes).
 
-Use `$HOME`, never `~`: PowerShell does not expand `~` inside quotes. `$HOME` expands in Bash and PowerShell alike.
-
-- `$PROBE py package.module` - top-level exports of a Python module (respects `__all__`).
-- `$PROBE py package.module:ClassName` - a class with its methods and properties.
-- `$PROBE py module --deep` - expand every class's methods. `--all` includes private names.
-- `$PROBE js ./src/utils.js` or `$PROBE js lodash` or `$PROBE js ./lib:Router` - Node exports with arity; classes list methods and statics.
+- `nitro probe py package.module` - top-level exports of a Python module (respects `__all__`).
+- `nitro probe py package.module:ClassName` - a class with its methods and properties.
+- `nitro probe py module --deep` - expand every class's methods. `--all` includes private names.
+- `nitro probe js ./src/utils.js` or `nitro probe js lodash` or `nitro probe js ./lib:Router` - Node exports with arity; classes list methods and statics.
 
 Runs from the current directory, so local packages import as they would in the project. Works on installed dependencies too, which is the cheapest way to answer "what does this library's function actually take".
 

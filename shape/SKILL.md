@@ -7,14 +7,12 @@ description: REQUIRED for any command or file that returns structured data — c
 
 A 3,000-line JSON response has maybe 30 distinct keys. `shape` prints those keys with their types, how many distinct values each has, min/max for numbers, three examples, and a sample row or two. You then descend with `--path` to the one branch you need.
 
-`SHAPE="python $HOME/.claude/skills/shape/scripts/shape.py"`
+`nitro shape --file data.json` is the short form; the nitro hook expands `nitro shape` to `python $HOME/.claude/skills/shape/scripts/shape.py`. Without the hook installed, type that path (`$HOME`, never `~`: PowerShell does not expand `~` inside quotes).
 
-Use `$HOME`, never `~` (PowerShell does not expand `~` inside quotes).
-
-- `$SHAPE curl -s https://api.example.com/users` / `$SHAPE gh pr list --json number,title,author` / `$SHAPE CMD...`
-- `$SHAPE --file data.csv` / `$SHAPE --file package-lock.json` / `cmd | $SHAPE --stdin`
-- `$SHAPE --path data.items[0].tags CMD` - descend before shaping. On an array of objects, `--path items.name` gives the column.
-- `$SHAPE --rows 10 ...` more samples. `$SHAPE --full --path items[2] ...` prints one small branch pretty-printed.
+- `nitro shape curl -s https://api.example.com/users` / `nitro shape gh pr list --json number,title,author` / `nitro shape CMD...`
+- `nitro shape --file data.csv` / `nitro shape --file package-lock.json` / `cmd | nitro shape --stdin`
+- `nitro shape --path data.items[0].tags CMD` - descend before shaping. On an array of objects, `--path items.name` gives the column.
+- `nitro shape --rows 10 ...` more samples. `nitro shape --full --path items[2] ...` prints one small branch pretty-printed.
 
 Detects JSON, JSON-lines, CSV/TSV (header inferred), markdown/pipe tables, space-aligned columns; anything else gets a line count with head and tail.
 

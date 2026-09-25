@@ -18,9 +18,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
 
 HOOK_ENFORCE = os.path.join(HERE, "hooks", "enforce-nitro-bash.py")
-HP = [PY, os.path.expanduser("~/.claude/skills/hashpatch/scripts/hp.py")]
-RR = [PY, os.path.expanduser("~/.claude/skills/rerun/scripts/rr.py")]
-PR = [PY, os.path.expanduser("~/.claude/skills/probe/scripts/probe.py")]
+HP = [PY, os.path.join(HERE, "hashpatch", "scripts", "hp.py")]
+RR = [PY, os.path.join(HERE, "rerun", "scripts", "rr.py")]
+PR = [PY, os.path.join(HERE, "probe", "scripts", "probe.py")]
 
 
 def S(skill, script):
@@ -51,38 +51,56 @@ class EnforceHookTests(unittest.TestCase):
 
     def hook(self, cmd):
         p = subprocess.run([PY, HOOK_ENFORCE], input=json.dumps({"tool_name": "Bash", "cwd": self.d, "tool_input": {"command": cmd}}),
-                            capture_output=True, text=True)
-        return ("DENY " + json.loads(p.stdout)["hookSpecificOutput"]["permissionDecisionReason"][:70]) if p.stdout else "allow"
+                           capture_output=True, text=True, encoding="utf-8")
+        if not p.stdout:
+            return "allow"
+        o = json.loads(p.stdout)["hookSpecificOutput"]
+        if o.get("permissionDecision") == "deny":
+            return "DENY " + o["permissionDecisionReason"][:70]
+        return "REWRITE " + o["updatedInput"]["command"]
 
-    def test_cases(self):
         cases = [
-            ("grep -rn foo .", "deny"), ("rg -n foo .", "allow"), ("git status | grep M", "deny"), ("findstr foo x", "deny"),
-            ("npm test 2>&1 | rg fail", "deny"), ("git log | rg fix -", "allow"), ("cat out.txt | rg PATTERN -", "allow"),
-            ("sed -n 30,210p big.js", "deny"), ("sed -n 30,60p big.js", "allow"), ("cat big.js", "deny"), ("cat s.txt", "allow"),
-            ("cat big.js | rg x -", "allow"), ("head -100 big.js", "deny"), ("head -20 big.js", "allow"), ("Get-Content big.js", "deny"),
-            ("cat missing.js", "allow"),
+            ("grep -rn foo .", "rewrite:rg -n foo ."), ("rg -n foo .", "allow"), ("git status | grep M", "rewrite:git status | rg M -"),
+            ("findstr foo x", "deny"), ("grep -P foo x", "deny"), ("grep -rni --include='*.py' 'def x' .", "rewrite:rg -n -i -g '*.py' 'def x' ."),
+            ("npm test 2>&1 | rg fail", "rewrite:fails.py"), ("git log | rg fix -", "allow"), ("cat out.txt | rg PATTERN -", "allow"),
+            ("sed -n 30,210p big.js", "rewrite:view big.js 30-210"), ("sed -n 30,60p big.js", "allow"), ("cat big.js", "rewrite:outline big.js"),
+            ("cat s.txt", "allow"), ("cat big.js | rg x -", "allow"), ("head -100 big.js", "rewrite:view big.js 1-100"), ("head -20 big.js", "allow"),
+            ("tail -50 big.js", "allow"), ("tail -100 big.js", "rewrite:view big.js 101-200"), ("Get-Content big.js", "rewrite:outline big.js"),
+            ("cat missing.js", "allow"), ("cat big.js other.js", "deny"),
             ("sed -i 's/a/b/' big.js", "deny"), ("perl -pi -e 's/a/b/' big.js", "deny"), ("echo hi > big.js", "deny"),
             ("echo hi > new.txt", "allow"), ("cat > new.mjs <<'EOF'\nx\nEOF", "allow"), ("node scripts/x.mjs > out.txt", "allow"),
             ("python - <<'EOF'\ns=open('big.js').read();open('big.js','w').write(s)\nEOF", "deny"),
             ("python - <<'EOF'\nprint(open('big.js').read()[:10])\nEOF", "allow"),
             ("node -e \"require('fs').writeFileSync('a','b')\"", "deny"),
-            ("npm run test:unit", "deny"), ("npm run build:client 2>&1 | tail -3", "deny"), ("pytest -q", "deny"), ("cargo check", "deny"),
-            ("make", "deny"), ("python ~/.claude/skills/rerun/scripts/rr.py \"npm run test:unit\"", "allow"),
+            ("npm run test:unit", "rewrite:fails.py"), ("npm run build:client 2>&1 | tail -3", "rewrite:rr.py"), ("pytest -q", "rewrite:fails.py"),
+            ("cargo check", "rewrite:fails.py"), ("make", "rewrite:rr.py"), ("pytest -k \"x\"", "rewrite:fails.py\" 'pytest -k \"x\"'"),
+            ("python ~/.claude/skills/rerun/scripts/rr.py \"npm run test:unit\"", "allow"),
             ("git status", "allow"), ("ls scripts", "allow"), ("echo 2>&1 >/dev/null", "allow"), ("npm test #nitro-skip", "allow"),
-            ("find . -name '*.py'", "deny"), ("fd -e py src", "allow"), ("tree src", "deny"), ("Get-ChildItem -Recurse src", "deny"),
+            ("find . -name '*.py'", "rewrite:fd -g '*.py' ."), ("find src -type f", "rewrite:fd -t f . src"), ("fd -e py src", "allow"),
+            ("tree src", "rewrite:fd -t f . src"), ("Get-ChildItem -Recurse src", "deny"), ("find . -newer x", "deny"),
             ("sed 's/a/b/' s.txt", "deny"), ("cat s.txt | sed 's/a/b/'", "deny"), ("cat s.txt | sd 'a' 'b'", "allow"),
-            ("sd 'a' 'b' big.js", "deny"), ("sd -f i 'a' 'b'", "allow"), ("jq . data.json", "deny"), ("curl -s x | jq .", "deny"),
+            ("sd 'a' 'b' big.js", "deny"), ("sd -f i 'a' 'b'", "allow"), ("sd '.*\\s(\\d+)' '#lease $1'", "allow"),
+            ("jq . data.json", "rewrite:shape.py\" --file data.json"), ("curl -s x | jq .", "rewrite:shape.py\" --stdin"),
             ("curl -s x | jq -c '.items[0].id'", "allow"), ("jq '.[0]' data.json", "allow"),
-            ("ruff check .", "deny"), ("mypy src", "deny"), ("python ~/.claude/skills/fails/scripts/fails.py pytest -q", "allow"),
+            ("ruff check .", "rewrite:fails.py"), ("mypy src", "rewrite:fails.py"), ("python ~/.claude/skills/fails/scripts/fails.py pytest -q", "allow"),
             ("python $HOME/.claude/skills/fails/scripts/fails.py \"npm test\"", "allow"),
+            ("nitro hp view big.js 1-5", "rewrite:hp.py\" view big.js 1-5"), ("nitro q blast x --tests", "rewrite:q.py\" blast x --tests"),
+            ("nitro dev", "allow"), ("nitro hp outline big.js; nitro why big.js", "rewrite:why.py\" big.js"),
+            ("nitro mine nitro rr npm run build", "rewrite:mine.py\" python \"") , ("echo nitro dev", "allow"),
+            ("nitro hp apply f <<'EOF'\nnitro hp view x\nEOF", "rewrite:apply f <<'EOF'\nnitro hp view x\nEOF"),
+            ("nitro hp grep x '#nitro-skip'", "rewrite:hp.py\" grep x '#nitro-skip'"), ("cat data.json #nitro-skip", "allow"),
+            (f"cd {self.d} && ls", "rewrite:cd dropped"), ("cd /nowhere/else && ls", "allow"),
         ]
         bad = 0
         for c, exp in cases:
             r = self.hook(c)
-            ok = r.startswith("DENY") == (exp == "deny")
+            if exp.startswith("rewrite:"):
+                ok = r.startswith("REWRITE") and exp[8:] in r
+            else:
+                ok = r.startswith("DENY") if exp == "deny" else r == "allow"
             bad += not ok
             if not ok:
-                print(("FAIL ") + repr(c[:45]) + " -> " + r)
+                print(("FAIL ") + repr(c[:45]) + " -> " + r[:160])
         self.assertEqual(bad, 0, f"{bad} enforce-hook case(s) failed")
 
 
@@ -101,8 +119,12 @@ class CoreSkillTests(unittest.TestCase):
         return os.path.join(self.cwd, rel)
 
     def _anchor(self, f, n):
-        out, _ = run(HP + ["view", self.p(f), str(n)], self.cwd)
+        out, _ = run(HP + ["view", self.p(f), str(n), "--anchors"], self.cwd)
         return out.split("|")[0]
+
+    def _lease(self, f, rng):
+        out, _ = run(HP + ["view", self.p(f), rng], self.cwd)
+        return out.strip().splitlines()[-1]
 
     def test_h1_body_keeps_trailing_blank_line(self):
         open(self.p("e.txt"), "wb").write(b"a\nb\nc\nd\ne\nf\n")
@@ -150,6 +172,42 @@ class CoreSkillTests(unittest.TestCase):
         out, rc = run(HP + ["apply", self.p("e.txt")], self.cwd,
                        f"@@\n@{self._anchor('e.txt',1)}-{self._anchor('e.txt',3)}\nA\n@@\n@{self._anchor('e.txt',2)}-{self._anchor('e.txt',4)}\nB\n@@\n")
         self.assertTrue(rc == 1 and "overlapping" in out, out)
+
+    def test_h10_lease_apply_bare_lines_and_receipt(self):
+        open(self.p("e.txt"), "wb").write(b"a\nb\nc\nd\ne\nf\n")
+        lease = self._lease("e.txt", "2-5")
+        self.assertRegex(lease, r"^\[lease .*e\.txt 2-5 h=[0-9a-f]{6}\]$")
+        out, rc = run(HP + ["apply", self.p("e.txt")], self.cwd, f"{lease}\n@@\n@3-4\nX\nY\nZ\n@@\n@5+\nW\n@@\n")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(open(self.p("e.txt"), "rb").read(), b"a\nb\nX\nY\nZ\ne\nW\nf\n", out)
+        self.assertIn("h1 @3-4 -> now 3-5", out)
+        self.assertIn("h2 @5+ -> now 7", out)
+        self.assertNotIn("|", out.split("APPLIED", 1)[1].split("[lease", 1)[0])   # receipt, no line echo
+        self.assertRegex(out, r"\[lease .*e\.txt 2-7 h=[0-9a-f]{6}\]")
+
+    def test_h11_stale_lease_and_uncovered_line_rejected(self):
+        open(self.p("e.txt"), "wb").write(b"a\nb\nc\nd\ne\nf\n")
+        lease = self._lease("e.txt", "2-3")
+        open(self.p("e.txt"), "wb").write(b"a\nB\nc\nd\ne\nf\n")
+        out, rc = run(HP + ["apply", self.p("e.txt")], self.cwd, f"{lease}\n@@\n@2\nQ\n@@\n")
+        self.assertTrue(rc == 1 and "stale lease 2-3" in out and open(self.p("e.txt"), "rb").read() == b"a\nB\nc\nd\ne\nf\n", out)
+        lease = self._lease("e.txt", "2-3")
+        out, rc = run(HP + ["apply", self.p("e.txt")], self.cwd, f"{lease}\n@@\n@5\nQ\n@@\n")
+        self.assertTrue(rc == 1 and "no valid lease covers it" in out, out)
+        out, rc = run(HP + ["apply", self.p("e.txt")], self.cwd, "#lease 2-3:000000\n@@\n@2\nQ\n@@\n")
+        self.assertTrue(rc == 1 and "stale lease" in out, out)
+
+    def test_h12_symbol_view_python_and_markdown(self):
+        open(self.p("m.py"), "w", encoding="utf-8").write("import os\n\n@deco\ndef f(x):\n    return x\n\n\nclass K:\n    def m(self):\n        return 1\n\n    def n(self):\n        return 2\n")
+        out, rc = run(HP + ["view", self.p("m.py"), "f"], self.cwd)
+        self.assertTrue(rc == 0 and out.replace(chr(13), "").startswith("3|@deco\n4|def f(x):\n5|    return x\n[lease"), out)
+        out, _ = run(HP + ["view", self.p("m.py"), "K.n"], self.cwd)
+        self.assertTrue(out.replace(chr(13), "").startswith("12|    def n(self):\n13|        return 2\n[lease"), out)
+        out, rc = run(HP + ["view", self.p("m.py"), "nope"], self.cwd)
+        self.assertTrue(rc == 1 and "no symbol or section 'nope'" in out and "def f(x)" in out, out)
+        open(self.p("d.md"), "w", encoding="utf-8").write("# T\n\nintro\n\n## Install\n\npip\n\n### Notes\n\nn\n\n## Usage\n\nu\n")
+        out, _ = run(HP + ["view", self.p("d.md"), "Install"], self.cwd)
+        self.assertTrue(out.replace(chr(13), "").startswith("5|## Install\n6|\n7|pip\n8|\n9|### Notes\n10|\n11|n\n[lease"), out)
 
     def test_r_rerun(self):
         open(self.p("t.py"), "w").write(
@@ -367,22 +425,28 @@ class SkillsTests(unittest.TestCase):
         big = "l\n" * 200
         subprocess.run([PY, H("budget-record.py")], cwd=self.repo, env=self.env, capture_output=True,
                        input=json.dumps({"tool_input": {"command": "git log"}, "tool_response": {"stdout": big}, "cwd": self.repo}).encode())
+        subprocess.run([PY, H("budget-record.py")], cwd=self.repo, env=self.env, capture_output=True,
+                       input=json.dumps({"tool_input": {"command": "python gen.py"}, "tool_response": {"stdout": big}, "cwd": self.repo}).encode())
 
         def guard(cmd):
             p = subprocess.run([PY, H("budget-guard.py")], cwd=self.repo, env=self.env, capture_output=True,
                                input=json.dumps({"tool_input": {"command": cmd}, "cwd": self.repo}).encode())
             return p.stdout.decode()
-        self.assertIn("produced 201 lines", guard("git log"))
+        self.assertIn("produced 201 lines", guard("python gen.py"))
+        self.assertIn("git log --oneline -20", guard("git log"))
         self.assertEqual("", guard("git log --oneline -5"))
         self.assertEqual("", guard("python x/mine.py git log"))
+        self.assertEqual("", guard("nitro mine git log"))
         self.assertEqual("", guard("python x/fails.py pytest -q"))
-        self.assertIn("whole-file blame", guard("git blame src/api.py"))
+        self.assertIn("why.py\\\" --blame src/api.py", guard("git blame src/api.py"))
         self.assertEqual("", guard("git blame -L 10,20 src/api.py"))
-        self.assertIn("unbounded flood", guard("curl -s http://x"))
+        self.assertIn("shape.py\\\" \\\"curl -s http://x\\\"", guard("curl -s http://x"))
         self.assertEqual("", guard("curl -s http://x | jq -c '.items[].id'"))
-        self.assertIn("fd PATTERN", guard("find . -name x"))
-        self.assertIn("structured/log file dump", guard("cat data.json"))
-        self.assertIn("structured/log file dump", guard("jq . data.json"))
+        self.assertEqual("", guard("find . -name x"))
+        self.assertIn("shape.py\\\" --file data.json", guard("cat data.json"))
+        self.assertIn("mine.py\\\" --file app.log", guard("cat app.log"))
+        self.assertEqual("", guard("jq . data.json"))
+        self.assertIn("unbounded flood", guard("pip list"))
         self.assertEqual("", guard("cat data.json #nitro-skip"))
         self.assertEqual("", guard("git status"))
         out, _ = self.r("budget", "budget.py", "report")

@@ -1,6 +1,8 @@
 # Nitro Skills by Dextrata
 [nitroskills.com](https://nitroskills.com) - a gift to the community from [Dextrata](https://dextrata.com)
 
+**Measured, not estimated: nitro-skills removes about 23% of the tool traffic a session sends to the model, which is about 7% of all its tokens.** Per operation the skills save 60 to 100% (see the benchmark table), but tool traffic is only 30% of a prompt. 436 real sessions on one machine show 9% less tool traffic per API call with the previous release; the changes in this release replay to a further 15% on the same sessions. Method and caveats in [Where the tokens actually go](#where-the-tokens-actually-go-642-real-sessions).
+
 Skills that cut the number of tokens [Claude Code](https://claude.com/claude-code) burns while working. Each one is a short `SKILL.md` (the only part that ever enters Claude's context) plus a script that gets *executed*, never read. That is the trick: the clever logic costs zero tokens no matter how many times it is reused.
 
 > **Claude Code only.** nitro-skills is built for Claude Code and nothing else.
@@ -19,7 +21,7 @@ Skills that cut the number of tokens [Claude Code](https://claude.com/claude-cod
 > works there unchanged. Settings › Skills & MCP › nitro-skills clones it, runs
 > `install.py` for you, wires the hooks, and keeps the checkout fast-forwarded.
 
-Three core skills (`hashpatch`, `rerun`, `probe`) shrink reads, edits and repeated command output. `fails` turns a test, lint or type-check run into its failures plus a new/still/fixed delta. `scout` replaces the manifest-and-README reads at the start of a session. `why` replaces `git log -p` and `git blame`. The rest (`refactor`, `mine`, `shape`, `sdiff`, `q`, `recall`, `budget`) attack mechanical edits, logs, payloads, diffs, search hops and callers, re-derived facts, and unbounded floods. See [Skill reference](#skill-reference) below.
+Three core skills (`hashpatch`, `rerun`, `probe`) shrink reads, edits and repeated command output. `fails` turns a test, lint or type-check run into its failures plus a new/still/fixed delta. `scout` replaces the manifest-and-README reads at the start of a session. `why` replaces `git log -p` and `git blame`. The rest (`refactor`, `mine`, `shape`, `sdiff`, `q`, `recall`, `budget`) attack mechanical edits, logs, payloads, diffs, search hops and callers, re-derived facts, and unbounded floods. Every skill is invoked as `nitro <skill> ...`; the hook expands that to the script path. See [Skill reference](#skill-reference) below, and [Where the tokens actually go](#where-the-tokens-actually-go-642-real-sessions) for what 642 real sessions measured.
 
 ## Automatic install
 
@@ -74,7 +76,9 @@ in this repo for a working example you can adapt.
 
 If you'd rather install by hand, or per-project instead of globally, copy
 each folder into `~/.claude/skills/` (global) or `.claude/skills/` (per
-project). The SKILL.md one-liners reference the scripts via
+project). With the hooks installed, skills are invoked as `nitro hp`,
+`nitro fails`, `nitro q` and so on, and the hook expands the short form to the
+script path. Without hooks, each SKILL.md gives the fallback path
 `$HOME/.claude/skills/...` (works on macOS, Linux, and Windows) rather than
 `~` because PowerShell does not expand `~` inside quoted arguments:
 
@@ -174,7 +178,7 @@ project's `CLAUDE.md` to document when each skill is required. See
 
 Without the PreToolUse hooks, Claude will bypass the skills and use shell commands
 instead (cat/sed -i for edits, bare test commands for runs, grep for searching).
-Two `PreToolUse` hooks make skill usage mechanical and unavoidable.
+Two `PreToolUse` hooks make skill usage mechanical: they expand the short `nitro <skill>` form, rewrite commands that have an exact skill equivalent, and deny the rest.
 
 ### Installing hooks
 
@@ -257,31 +261,43 @@ the tool call as JSON on stdin.
   whole-file `Read` of an existing file over 60 lines and points at hashpatch
   `outline`/`grep`/`view` or probe. Ranged reads and new files pass.
 - [hooks/enforce-nitro-bash.py](hooks/enforce-nitro-bash.py) - matcher
-  `Bash|PowerShell`. Denies, in order: grep-family commands (use `rg`); `cmd |
-  rg PATTERN` without an explicit `-`; `find`/`ls -R`/`tree`/`Get-ChildItem
-  -Recurse` (use `fd`); `cat`/`sed -n`/`head`/`tail`/`Get-Content` dumping more
-  than 60 lines of an existing file into context; in-place edits of an existing
-  file (`sed -i`, `perl -i`, `sd FILE`, `>`/`>>` redirection, `tee`,
-  `Set-Content`, inline `python -`/`node -e` scripts that write); `sed` as a
-  stream transform (use `sd`); `jq .` whole-document dumps (use `shape`); and
-  tests, linters and type checkers not wrapped in fails, and builds not
-  wrapped in rerun. Creating a new file by
-  redirection, `cmd | sd 'a' 'b'`, and piping a dump onward are allowed. Append
-  `#nitro-skip` to a command that genuinely needs to bypass it.
+  `Bash|PowerShell`. Three jobs, in order. (1) Expands `nitro hp view F 1-9`
+  to `python "<skills>/hashpatch/scripts/hp.py" view F 1-9` (names: hp rr
+  fails probe rf mine shape sdiff q scout why rc budget sessions and the long
+  skill names; a real `nitro` binary is untouched unless the next word is one
+  of those). (2) Rewrites, via `updatedInput`, commands whose skill equivalent
+  is exact: `sed -n A,Bp F`, `head -N F`, `tail -N F` and `cat F` over 60 lines
+  become hashpatch view/outline; simple `grep` becomes `rg`; `cmd | rg PAT`
+  gains its `-`; `find DIR -name G`, `ls -R` and `tree` become `fd`; `jq . F`
+  becomes `shape`; tests, linters and type checkers get wrapped in `fails` and
+  builds in `rerun`; a leading `cd DIR &&` is dropped when DIR is already the
+  working directory. The rewritten command starts with `echo '[nitro: ...]'`
+  so the transcript says what ran. Read-only rewrites carry
+  `permissionDecision: allow`; anything that runs or writes keeps the normal
+  permission flow (both forms verified live). (3) Denies what has no exact
+  rewrite and names the skill: grep flags rg cannot map, in-place edits
+  (`sed -i`, `perl -i`, `sd FILE`, `>`/`>>` redirection, `tee`, `Set-Content`,
+  inline `python -`/`node -e` scripts that write), `sed` as a stream transform
+  (use `sd`), dumps with extra arguments. Heredoc bodies are data and are never
+  rewritten. Append `#nitro-skip` (as the last thing on the line) to a command
+  that genuinely needs to bypass it.
 
 The Read hook alone is not enough: an agent told to prefer the shell never
 calls Read, so the Bash hook is the one that closes the gap.
 
 - [hooks/budget-record.py](hooks/budget-record.py) - `PostToolUse`. Records
   lines and characters per command shape in `~/.cache/nitro/budget`.
-- [hooks/budget-guard.py](hooks/budget-guard.py) - `PreToolUse`. Denies a
-  command whose shape produced more than 120 lines last time unless it is
-  routed through a shaping skill or bounded (`| head`, `| sd`, a narrowing
-  `| jq FILTER`, `-n`, `--oneline`, `--stat`), and denies known floods on first
-  sight (unbounded `git log`, whole-file `git blame`, `find`/`ls -R`/`tree`, `pip list`/`npm ls`/`env`,
-  raw `curl`/`gh api`/`kubectl -o json`, `cat` or `jq .` of `.json`/`.csv`/`.log`,
-  `docker logs`). Names the shaper or tool to use (`fd`, `shape`, `mine`, `why`, ...).
-  `#nitro-skip` bypasses it.
+- [hooks/budget-guard.py](hooks/budget-guard.py) - `PreToolUse`. Rewrites
+  known floods that have an exact skill equivalent: unbounded `git log` gets
+  `--oneline -20`, whole-file `git blame F` becomes `why --blame F`, `cat` of a
+  `.json`/`.csv`/`.tsv` file becomes `shape --file`, of a `.log`/`.jsonl` file
+  `mine --file`, raw `curl`/`gh api`/`kubectl -o json` gets wrapped in `shape`
+  and `docker logs`/`journalctl` in `mine`. Denies `pip list`/`npm ls`/`env`
+  dumps, and any command whose shape produced more than 120 lines last time
+  unless it is routed through a skill or bounded (`| head`, `| sd`, a narrowing
+  `| jq FILTER`, `-n`, `--oneline`, `--stat`). Shapes the enforce hook owns
+  (grep, find, code dumps, jq, test runners) are left to it. `#nitro-skip`
+  bypasses it.
 
 ## Skill reference
 
@@ -293,7 +309,7 @@ repo so it can be committed.
 
 | skill | replaces | what it prints instead |
 |---|---|---|
-| **hashpatch** | `Read` then `Edit` on a file that already exists; reading a README, config or notebook to find a section | `N:HHHH` anchored lines; `outline` (code, markdown, YAML/TOML/JSON, Makefile, Dockerfile, SQL, notebooks) / `grep` / `view` to locate, `apply` to patch, fresh anchors back |
+| **hashpatch** | `Read` then `Edit` on a file that already exists; reading a README, config or notebook to find a section; reading 60 lines to edit 5 | numbered lines under a lease (`view FILE SYMBOL` for one function, class or markdown section, or `view FILE A-B`); `outline` (code, markdown, YAML/TOML/JSON, Makefile, Dockerfile, SQL, notebooks) and `grep` with `N:HHHH` anchors; `apply` by bare line number under the lease; a two-line receipt back instead of the edited lines |
 | **rerun** | re-running a build or script and re-reading the whole output | the first run as a baseline, then only the diff, or one `unchanged` line |
 | **fails** | reading a test, lint or type-check run to find what failed, then reading it all again after the fix | the summary line, one block per failure (id, message, your frame), and `new / still / fixed` against the previous run |
 | **probe** | reading a module's source just to learn its API | one signature per function and class, read off the imported module |
@@ -305,15 +321,15 @@ repo so it can be committed.
 | **scout** | `cat package.json`, `cat pyproject.toml`, the README, `ls -R` at the start of a session | one screen: stack, test/build/lint/run commands, entry points, layout with sizes, CI, tooling, docs, biggest files |
 | **why** | `git log -p -- FILE`, `git blame FILE`, `git show` | one row per commit that touched the file or the lines (sha, date, author, +/-, subject, refs); `--show SHA` for one hunk, `--blame` for runs of lines |
 | **recall** | re-deriving "where is X handled" every session | the saved answer, each `file:line` ref re-validated by line hash (FRESH / STALE) |
-| **budget** | discovering the flood after it happened | per-command token ledger; hooks deny the next oversized run and name the shaper |
+| **budget** | discovering the flood after it happened; guessing where a session's tokens went | per-command token ledger; hooks rewrite or deny the next oversized run; `nitro sessions` measures every past session from the transcripts |
 
 ### hashpatch (explain like I'm 5)
 
 Imagine you want your friend to fix one sentence in a book. The old way: you read them the *whole book*, then read the sentence out loud *again* so they know which one, then say the new sentence. That's three copies of a lot of words.
 
-hashpatch gives every line in the book a tiny sticker, like `42:ab3f`. Now you just say "replace sticker 42:ab3f with this new sentence." No re-reading. And if someone changed the book since you looked, the sticker won't match and nothing happens, so it is safe.
+hashpatch shows you one chapter with numbered lines and a *seal* on the chapter: a short code computed from exactly those lines. You say "replace lines 42-44 with this new sentence, seal 3f9ac2". If anyone changed the chapter since you looked, the seal will not match and nothing happens, so it is safe. And it answers with a receipt ("lines 42-46 now, new seal 9b12e0"), not by reading your sentence back to you.
 
-It also lets you look at just the *chapter titles* (`outline`) - and that works for a README's headings, a config file's keys, a Makefile's targets or a notebook's cells, not only code - or just the lines with a word you care about (`grep`), instead of the whole book.
+It also lets you ask for one chapter by name (`view FILE Pool.acquire`, or a README section by its heading), look at just the *chapter titles* (`outline`) - which works for a README's headings, a config file's keys, a Makefile's targets or a notebook's cells, not only code - or just the lines with a word you care about (`grep`), instead of the whole book.
 
 ### rerun (explain like I'm 5)
 
@@ -367,7 +383,7 @@ A grown-up who stops you before you pour the whole cereal box into the bowl, and
 
 ### Composition
 
-Shapers nest: `$MINE $RR npm run build`, `$FAILS "pytest -q 2>&1"`, `$SHAPE curl ...`. The last tag printed is the outermost skill's; every skill passes the inner exit code through.
+Shapers nest: `nitro mine nitro rr npm run build`, `nitro fails "pytest -q 2>&1"`, `nitro shape curl ...`. The last tag printed is the outermost skill's; every skill passes the inner exit code through.
 
 ---
 
@@ -378,12 +394,12 @@ Shapers nest: `$MINE $RR npm run build`, `$FAILS "pytest -q 2>&1"`, `$SHAPE curl
 Latest run:
 
 ```
-Ran 33 tests in 11.7s
+Ran 35 tests in 10.7s
 
 OK
 ```
 
-All 33 tests pass. Run it yourself with:
+All 35 tests pass. Run it yourself with:
 
 ```
 python tests.py
@@ -406,8 +422,8 @@ python bench.py --markdown # this table
 
 | skill | task | baseline | with skill | baseline tok | skill tok | saved |
 |---|---|---|---|---|---|---|
-| **hashpatch** | Edit one function in a 60-function file | Read whole file + Edit (old + new text) | outline + grep + patch | 3,548 | 1,428 | **60%** |
-| **hashpatch-fair** | Same edit, disciplined ranged read | Read a 60-line range + Edit | grep + patch | 360 | 497 | **-38%** |
+| **hashpatch** | Edit one function in a 60-function file | Read whole file + Edit (old + new text) | outline + symbol view + lease patch + receipt | 3,548 | 1,064 | **70%** |
+| **hashpatch-fair** | Same edit, disciplined ranged read | Read a 60-line range + Edit | symbol view + lease patch + receipt | 360 | 136 | **62%** |
 | **hashpatch-docs** | Find a section in a 400-line README | Read the whole README | outline: headers with line numbers | 4,249 | 211 | **95%** |
 | **probe** | Learn a module's API | Read whole module source | probe signatures | 3,525 | 159 | **95%** |
 | **rerun** | Second run of a 300-line command | full 300-line output every run | diff vs stored baseline | 1,577 | 20 | **99%** |
@@ -437,14 +453,19 @@ all equally favourable. What the numbers actually say:
   compact `pytest -q` run with short tracebacks; verbose runners (jest, cargo,
   captured logs) push its number up, and its real value is the `new / still /
   fixed` line, which no text diff gives you.
-- **`hashpatch` depends entirely on the baseline you compare against.** Against
-  a whole-file read (what `Read` does by default) it saves 60%. Against a
-  disciplined 60-line ranged read it *costs* 38%, which is why that row is in
-  the table. Its value in that case is safety rather than tokens: a stale
-  anchor is rejected instead of silently mis-editing. It also wins on the
-  second and later edits to one file, since the post-apply anchors replace a
-  re-read. On a README, config or notebook the outline is the whole win
-  (95%): headers with line numbers instead of the document.
+- **`hashpatch` used to lose to a disciplined ranged read; now it wins both
+  rows.** Against a whole-file read it saves 70%; against a 60-line ranged
+  read plus `Edit` it saves 62%, where the previous release *cost* 38%. Three
+  changes did it, each replayed on 642 real sessions before shipping (next
+  section): `view FILE SYMBOL`, which shows the one function, class or
+  markdown section you named instead of a 60-line window (only 12% of the
+  lines in a pre-edit view used to end up near the edit); leased views, where
+  one six-character hash covers the whole range instead of a hash on every
+  line (8% of view output); and a two-line receipt after `apply` instead of
+  echoing the edited region back (92% of apply output, the single biggest
+  stream a skill ever admitted into context). Safety is unchanged in kind: a
+  stale lease or anchor rejects the whole patch before anything is written.
+  On a README, config or notebook the outline is the whole win (95%).
 - **`scout` (78%) and `q blast` (25%) are the weakest**, and both are honest
   about it. `scout` prints roughly 400 tokens no matter how big the repo is,
   so it wins more on a real repo than on the fixture; `q blast` beats `rg -C
@@ -462,33 +483,108 @@ all equally favourable. What the numbers actually say:
   fewer `SKILL.md` descriptions competing for the agent's attention on every
   tool call.
 
-**Blended expectation: roughly 25 to 40% of total session tokens** on typical
-edit-test-iterate work in an existing codebase. The per-scenario percentages
-above are much higher than that, and the gap is deliberate — the scenarios
-measure the tool traffic a skill touches, while a session also contains system
-prompt, conversation, reasoning and one-off commands that no skill changes.
-Assumptions behind the blend:
-
-- Tool traffic (reads, edits, command output) is 60 to 80% of a session.
-- Reads and edits are about half of tool traffic, cut by ~50% on a realistic
-  mix of whole-file and ranged habits.
-- Command output is about a third, cut by ~60% (weighted toward real suites,
-  not 10-line toys).
-- The remainder (git, listings, one-off commands) is unchanged.
-- The SKILL.md files cost ~500 tokens per session for the three core skills;
-  the full set is loaded on demand, not up front.
+**What a whole session saves is measured, not blended.** The per-scenario
+percentages above measure only the tool traffic a skill touches. The next
+section measures 642 real sessions and finds that tool traffic is about 30% of
+every prompt, which bounds what any skill can do. The "25 to 40% of total
+session tokens" estimate that used to sit here was too optimistic for the
+prompt side and is withdrawn.
 
 An earlier draft of this README claimed 45 to 60% and measured only hashpatch,
 rerun and probe. The fair-baseline rows above corrected the number, and every
 skill is now measured rather than asserted. Savings are smallest on greenfield
 work and largest on maintenance work with big files and noisy output.
 
-One effect not in the table: everything an agent reads stays in context and is re-sent on every later turn. Cutting a 4k-token read to 300 tokens saves ~3.7k tokens *per subsequent turn*, so the compounding benefit over a long session is larger than the per-task numbers suggest.
+One effect the table cannot show: everything an agent reads stays in context and is re-sent on every later API call. The next section measures that residency directly.
+
+### Where the tokens actually go (642 real sessions)
+
+`nitro sessions` reads every Claude Code transcript on this machine (642
+sessions of 50 KB or more, 67,100 API calls) and aggregates them. The numbers
+below are from this machine; run it on yours. Prompt and output tokens come
+from the API usage records in the transcripts; everything else is chars/4.
+
+| what | measured |
+|---|---|
+| prompt tokens billed | 18.9 billion (99% cache reads), 281k per call on average |
+| output tokens | 41.0 million, 66% of them reasoning that never enters the transcript |
+| fixed part of every prompt (system prompt, tools, CLAUDE.md, skills) | 16% |
+| tool results in the prompt | 19% |
+| tool inputs the model wrote (commands, patches, Write bodies) | 11% |
+| assistant prose and user text | 1% |
+| the rest (harness-injected text, loaded tool schemas, in-turn thinking, chars/4 error) | ~52% |
+| tool traffic older than 30 calls that is still re-sent | 26% of all prompt tokens |
+
+**How the headline number was computed.** Sessions were bucketed by the share
+of their file and shell tool calls (Bash, Read, Edit, Write, Grep, Glob) that
+went through a nitro skill, excluding this repo's own sessions and anything
+under 20 API calls. Per API call, sessions that used nitro for at least half
+of those calls admitted 5% fewer tool-result tokens and wrote 15% fewer
+tool-input tokens than sessions that never used it: 9% less tool traffic
+together. Replaying this release's changes on the nitro sessions (receipts,
+leases, the short form, dropped `cd`, rewrites instead of denials) removes a
+further 15% of their tool traffic. Compounded that is 23% of tool traffic;
+tool traffic is 30% of a prompt, so about 7% of all prompt tokens, and a
+similar share of output tokens. This compares different sessions on different
+tasks, so it is an estimate of the realized effect, not a controlled
+experiment. It does not credit nitro for needing fewer calls per task (one `q`
+instead of four `rg` calls), which per-call figures cannot see, and it does
+not blame it for the much larger contexts of the nitro sessions (362k against
+172k tokens per call), which come from longer sessions on bigger projects.
+Reproduce it with `nitro sessions`.
+
+| per API call | no nitro (185 sessions) | nitro for at least half of the calls (71 sessions) | change |
+|---|---|---|---|
+| tool-result tokens admitted | 311 | 295 | -5% |
+| tool-input tokens written | 215 | 182 | -15% |
+| tool traffic, both | 526 | 477 | -9% |
+| this release, replayed on the nitro sessions | | | a further -15% of tool traffic |
+
+Three findings follow, and they are the reasoning behind this release.
+
+**1. Cost is residency, not admission.** With cache reads at a tenth of the
+input price, prompt tokens are still about 91% of spend, because the whole
+context is re-sent on every call. A tool result costs what it costs once, then
+again on every later call until compaction. That is why every skill here
+attacks admission (what enters context), and why the biggest lever of all,
+dropping consumed tool traffic from context, is outside the skill layer: it is
+a harness or API feature. 26% of every prompt is tool traffic older than 30
+calls. No skill can pull that lever; this README says so rather than
+pretending otherwise.
+
+**2. hashpatch is optimal because it sits on the biggest admitted stream, and
+that stream is now hashpatch's own output.** Of the 19 million tokens of tool
+output admitted across these sessions, 43% came from hashpatch (19,587 calls,
+417 tokens each), 17% from `cat`/`sed`/`head`/`tail`, 12% from `rg`, 6% from
+the Read tool. Reads are two thirds of everything admitted. A skill that
+shaves 5% off reads beats one that removes 95% of a stream nobody uses, which
+is why `mine`'s 100% row matters less than `hashpatch`'s 70%, and why the only
+skill-layer changes worth making were inside hashpatch and the hooks:
+
+| change (replayed on the recorded outputs of those sessions) | tokens it would have saved |
+|---|---|
+| receipt instead of echoing the edited region after `apply` | 1,705,449 (92% of apply output) |
+| leased views without a hash on every line | 332,107 (8% of view output) |
+| `nitro <skill>` short form instead of `python $HOME/.claude/skills/...` and `VAR="python ..."` definitions | 562,739 output tokens (24,359 calls) |
+| dropping `cd DIR &&` when DIR is the working directory | 216,035 output tokens |
+| rewriting instead of denying (1,751 denials at 139 tokens per round trip) | 244,828 |
+
+Symbol views cannot be replayed (the recordings hold the windows the agent
+chose, not what it needed); the bound is that only 12% of the lines in a view
+that preceded an edit were within three lines of that edit, and 29% of views
+were never followed by an edit at all.
+
+**3. The things that looked like levers and were not.** Repeated views (the
+old `seen` idea) are 9% of hashpatch output: dedupe cannot pay. `rg` output
+already shown in the same session is under 1%. Thinking is two thirds of
+output tokens and no skill touches it. Skills reach at most the 30% of a
+prompt that is tool traffic; the SKILL.md descriptions themselves are part of
+the fixed 16%, which is one more reason the skill count went down, not up.
 
 ### Correctness and security review
 
 All thirteen skills and the four hooks were reviewed and are covered by a
-regression suite (`python tests.py`, 33 tests: hook allow/deny behaviour, the
+regression suite (`python tests.py`, 35 tests: hook allow/deny/rewrite behaviour, the
 core line-op edge cases, per-skill round-trips, the installer, and the
 benchmark harness). Core edge cases exercised: trailing blank lines in patch
 bodies, inserts inside replaced ranges, overlapping hunks, non-UTF-8 bytes,
@@ -540,11 +636,17 @@ Security properties:
 - **Read-only skills stay read-only.** `q`, `scout`, `why` and `budget` only
   read source files, git metadata and their own caches; none of them writes
   to your tree.
-- **The hooks decide, they don't execute.** `enforce-nitro-bash`,
+- **The hooks decide or rewrite, they don't execute.** `enforce-nitro-bash`,
   `budget-guard` and `block-whole-file-reads` inspect the proposed tool input
-  and return allow/deny JSON; they never run the command. `budget-record`
-  appends output sizes to the history file. Append `#nitro-skip` to bypass a
-  hook when the raw command is genuinely required.
+  and return allow/deny JSON, or an `updatedInput` that swaps the command for
+  its skill equivalent; they never run the command. A rewrite carries
+  `permissionDecision: allow` only when every segment of the result is a
+  read-only skill invocation, `rg`, `fd` or a read-only git command; anything
+  that runs a test, a build, a network call or an edit goes through the normal
+  permission flow. Heredoc bodies are never rewritten, and `#nitro-skip` only
+  counts as the last thing on a line, so a pattern or a body that mentions it
+  cannot disable the hook. `budget-record` appends output sizes to the
+  history file.
 - **File content, anchor hashes and cached output are data, not instructions.**
   Nothing in any script interprets file or command content as commands.
 

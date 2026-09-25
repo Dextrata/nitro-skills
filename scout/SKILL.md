@@ -7,12 +7,10 @@ description: REQUIRED at the start of work in a repo you have not oriented in th
 
 The first ten minutes in a repo are spent reading manifests, listing directories and skimming the README to answer "what is this and how do I run its tests". Those reads are 2,000-5,000 tokens and the answer is 20 lines. `scout` reads the manifests and prints the answer.
 
-`SCOUT="python $HOME/.claude/skills/scout/scripts/scout.py"`
+`nitro scout` is the short form; the nitro hook expands `nitro scout` to `python $HOME/.claude/skills/scout/scripts/scout.py`. Without the hook installed, type that path (`$HOME`, never `~`: PowerShell does not expand `~` inside quotes).
 
-Use `$HOME`, never `~`: PowerShell does not expand `~` inside quotes. `$HOME` expands in Bash and PowerShell alike.
-
-- `$SCOUT` - the current repo. `$SCOUT path/to/dir` - another tree (a monorepo package, for instance).
-- `$SCOUT --dirs 25` - more top-level directories in the layout. `$SCOUT --json` - the same facts as JSON.
+- `nitro scout` - the current repo. `nitro scout path/to/dir` - another tree (a monorepo package, for instance).
+- `nitro scout --dirs 25` - more top-level directories in the layout. `nitro scout --json` - the same facts as JSON.
 
 Output:
 ```
@@ -35,7 +33,7 @@ big     src/db/models.py 2,140 · src/api/routes.py 1,880 · web/src/App.tsx 1,2
 ```
 
 ## Rules
-1. Scout once per repo per session, before any manifest read. If a `recall ask` about the project already answers you, skip it.
-2. The `run` line is inferred from scripts, Makefile targets and tool configs. Use those commands through `fails` (tests, lint, typecheck) or `rerun` (build).
-3. Everything named in the output is a pointer: `hashpatch outline` for a big file, `probe` for a module's API, `q` for symbols. Do not follow up with `cat`.
+1. Scout once per repo per session, before any manifest read. If a `nitro rc ask` about the project already answers you, skip it.
+2. The `run` line is inferred from scripts, Makefile targets and tool configs. Use those commands through `nitro fails` (tests, lint, typecheck) or `nitro rr` (build).
+3. Everything named in the output is a pointer: `nitro hp outline` for a big file, `nitro probe` for a module's API, `nitro q` for symbols. Do not follow up with `cat`.
 4. Counts skip gitignored paths (fd) and stop counting lines above 6,000 files; the tag says so when that happens.

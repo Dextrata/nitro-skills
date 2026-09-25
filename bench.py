@@ -158,13 +158,14 @@ def sc_hashpatch(d):
     old = "def helper_3(value, flag=False, *, name='h3'):"
     new = "def helper_3(value, flag=True, *, name='h3'):"
     baseline = src + old + "\n" + new + "\n"
-    # skill: outline, grep to the target, patch, trust returned anchors
+    # skill: outline to find it, a symbol view under a lease, a patch by bare line number, a receipt back
     out = run([hp, "outline", p], d)
-    gr = run([hp, "grep", p, "helper_3", "2"], d)
-    m = re.search(r"^(\d+):([0-9a-f]{4})\|def helper_3", gr, re.M)
-    patch = f"@@\n@{m.group(1)}:{m.group(2)}\n{new}\n@@\n" if m else ""
+    vw = run([hp, "view", p, "helper_3"], d)
+    m = re.search(r"^(\d+)\|def helper_3", vw, re.M)
+    lease = vw.strip().splitlines()[-1]
+    patch = f"{lease}\n@@\n@{m.group(1)}\n{new}\n@@\n" if m else ""
     ap = run([hp, "apply", p], d, stdin=patch)
-    return baseline, out + gr + ap, "Read whole file + Edit (old + new text)", "outline + grep + patch"
+    return baseline, out + vw + ap, "Read whole file + Edit (old + new text)", "outline + symbol view + lease patch + receipt"
 
 
 def sc_hashpatch_fair(d):
@@ -176,11 +177,12 @@ def sc_hashpatch_fair(d):
     old = "def helper_3(value, flag=False, *, name='h3'):"
     new = "def helper_3(value, flag=True, *, name='h3'):"
     baseline = "".join(lines[max(0, i - 30):i + 30]) + old + "\n" + new + "\n"
-    gr = run([hp, "grep", p, "helper_3", "2"], d)
-    m = re.search(r"^(\d+):([0-9a-f]{4})\|def helper_3", gr, re.M)
-    patch = f"@@\n@{m.group(1)}:{m.group(2)}\n{new}\n@@\n" if m else ""
+    vw = run([hp, "view", p, "helper_3"], d)
+    m = re.search(r"^(\d+)\|def helper_3", vw, re.M)
+    lease = vw.strip().splitlines()[-1]
+    patch = f"{lease}\n@@\n@{m.group(1)}\n{new}\n@@\n" if m else ""
     ap = run([hp, "apply", p], d, stdin=patch)
-    return baseline, gr + ap, "Read a 60-line range + Edit", "grep + patch"
+    return baseline, vw + ap, "Read a 60-line range + Edit", "symbol view + lease patch + receipt"
 
 
 def sc_probe(d):

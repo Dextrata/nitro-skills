@@ -7,14 +7,12 @@ description: REQUIRED wrapper for running tests, linters and type checkers — p
 
 A test run is 300 lines of dots and 40-line tracebacks to say "3 failed". A second run after a fix is the same again. `fails` parses the runner's output, prints one block per failure (id, message, the frame in your code), and keys every failure so the next run can say what is new, what is still broken and what you fixed. Linters and type checkers get the same treatment grouped by rule, keyed without line numbers so an edit above a warning does not make it "new".
 
-`FAILS="python $HOME/.claude/skills/fails/scripts/fails.py"`
+`nitro fails pytest -q` is the short form; the nitro hook expands `nitro fails` to `python $HOME/.claude/skills/fails/scripts/fails.py`. Without the hook installed, type that path (`$HOME`, never `~`: PowerShell does not expand `~` inside quotes). A bare test or lint command is rewritten into this form by the hook anyway.
 
-Use `$HOME`, never `~`: PowerShell does not expand `~` inside quotes. `$HOME` expands in Bash and PowerShell alike.
-
-- `$FAILS pytest -q` / `$FAILS npm test` / `$FAILS cargo test` / `$FAILS ruff check .` / `$FAILS npx tsc --noEmit`
-- `$FAILS "npm test -- --runInBand 2>&1"` - quote a command with pipes or redirections.
-- `some-cmd 2>&1 | $FAILS --stdin` / `$FAILS --file ci.log` - parse output you already have.
-- `$FAILS --show F2` - the full raw block of failure F2 from the last run. `--all` lifts the 20-failure cap. `--forget CMD` drops the baseline.
+- `nitro fails pytest -q` / `nitro fails npm test` / `nitro fails cargo test` / `nitro fails ruff check .` / `nitro fails npx tsc --noEmit`
+- `nitro fails "npm test -- --runInBand 2>&1"` - quote a command with pipes or redirections.
+- `some-cmd 2>&1 | nitro fails --stdin` / `nitro fails --file ci.log` - parse output you already have.
+- `nitro fails --show F2` - the full raw block of failure F2 from the last run. `--all` lifts the 20-failure cap. `--forget CMD` drops the baseline.
 
 Output:
 ```
@@ -33,6 +31,6 @@ Diagnostics (tsc, eslint, ruff, mypy, pyright, clippy, gcc) print one row per ru
 
 ## Rules
 1. Read the last tag first. `0 new, N still, 0 fixed` after an edit means the edit did not touch the failure; do not re-run bare "to see the real output".
-2. The frame lines are `file:line` in your code, library frames are already dropped. Feed them straight to hashpatch `view`; do not rg for the test.
+2. The frame lines are `file:line` in your code, library frames are already dropped. Feed them straight to `nitro hp view FILE A-B`; do not rg for the test.
 3. `--show FN` only when the message and frame are not enough. It is the raw block you would have read anyway, once.
 4. Unrecognized output falls back to the exit code and the last 25 lines; if that happens often for a runner, use rerun for it.

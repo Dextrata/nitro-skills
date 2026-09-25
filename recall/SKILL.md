@@ -7,13 +7,11 @@ description: REQUIRED at the start of any investigation of the form "where/how i
 
 Every session re-derives the same facts about a codebase: where auth lives, how config loads, which module owns the queue. `recall` stores those answers with `file:line` refs and a hash of the referenced lines. Next session, asking costs one call and the answer says whether each ref still holds.
 
-`RC="python $HOME/.claude/skills/recall/scripts/recall.py"`
+`nitro rc ask "where is X"` is the short form; the nitro hook expands `nitro rc` to `python $HOME/.claude/skills/recall/scripts/recall.py`. Without the hook installed, type that path (`$HOME`, never `~`: PowerShell does not expand `~` inside quotes).
 
-Use `$HOME`, never `~` (PowerShell does not expand `~` inside quotes).
-
-- `$RC ask "where is request auth handled"` - top matches, each ref marked fresh, changed, or missing.
-- `$RC save "where is request auth handled" "middleware in src/api/auth.py:40-88 (verify_token); wired in src/app.py:23; tests tests/test_auth.py:1-60"`
-- `$RC list [filter]` / `$RC forget ID` / `$RC refresh ID` (after you have re-verified a stale memo).
+- `nitro rc ask "where is request auth handled"` - top matches, each ref marked fresh, changed, or missing.
+- `nitro rc save "where is request auth handled" "middleware in src/api/auth.py:40-88 (verify_token); wired in src/app.py:23; tests tests/test_auth.py:1-60"`
+- `nitro rc list [filter]` / `nitro rc forget ID` / `nitro rc refresh ID` (after you have re-verified a stale memo).
 
 Stored in `.claude/recall.jsonl` when the repo has a `.claude` dir (commit it; every agent on the team benefits), else in the user cache.
 

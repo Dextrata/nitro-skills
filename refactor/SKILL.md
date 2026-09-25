@@ -7,16 +7,14 @@ description: REQUIRED for mechanical multi-line or multi-file edits — renaming
 
 A rename across nine files costs nine patches. With `refactor` it costs one line, and the reply is one line per file. The script does the mechanical work (token-aware for Python so strings and comments are untouched; word-boundary elsewhere). Candidate files come from `rg -l` and `fd`, so a rename across a large tree reads only the files that mention the name.
 
-`RF="python $HOME/.claude/skills/refactor/scripts/rf.py"`
+`nitro rf rename old new` is the short form; the nitro hook expands `nitro rf` to `python $HOME/.claude/skills/refactor/scripts/rf.py`. Without the hook installed, type that path (`$HOME`, never `~`: PowerShell does not expand `~` inside quotes).
 
-Use `$HOME`, never `~` (PowerShell does not expand `~` inside quotes).
-
-- `$RF rename oldName newName [src/ tests/]` - identifier rename. Defaults to the whole tree.
-- `$RF add-import src/x.py "from pathlib import Path"` - inserted after the last import; no-op if present.
-- `$RF wrap src/x.py 20-31 try ValueError "return None"` - wrap a line range. Also `wrap FILE A-B with EXPR` / `if COND` / `for ...`.
-- `$RF rm-symbol src/x.py old_helper` - delete a top-level def/class (decorators included, trailing blanks swallowed).
-- `$RF move-symbol src/a.py helper src/b.py` - cut from one file, append to another.
-- `$RF replace 'log\.warn\(' 'log.warning(' src/` - regex across files.
+- `nitro rf rename oldName newName [src/ tests/]` - identifier rename. Defaults to the whole tree.
+- `nitro rf add-import src/x.py "from pathlib import Path"` - inserted after the last import; no-op if present.
+- `nitro rf wrap src/x.py 20-31 try ValueError "return None"` - wrap a line range. Also `wrap FILE A-B with EXPR` / `if COND` / `for ...`.
+- `nitro rf rm-symbol src/x.py old_helper` - delete a top-level def/class (decorators included, trailing blanks swallowed).
+- `nitro rf move-symbol src/a.py helper src/b.py` - cut from one file, append to another.
+- `nitro rf replace 'log\.warn\(' 'log.warning(' src/` - regex across files.
 - Prefix `--dry` to see what would change.
 
 ## Rules

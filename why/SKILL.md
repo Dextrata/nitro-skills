@@ -7,14 +7,12 @@ description: REQUIRED instead of `git log -p`, `git log --follow`, `git blame` o
 
 "Why is this here?" is answered by two or three commit messages, not by a diff stream. `why` follows a file or a line range through history with `git log -L` and prints a row per commit; `--show` fetches only the hunk of one commit that touched those lines; `--blame` groups a range into runs of lines that share their last commit, without printing the code you already have.
 
-`WHY="python $HOME/.claude/skills/why/scripts/why.py"`
+`nitro why FILE:A-B` is the short form; the nitro hook expands `nitro why` to `python $HOME/.claude/skills/why/scripts/why.py`. Without the hook installed, type that path (`$HOME`, never `~`: PowerShell does not expand `~` inside quotes). A bare `git blame FILE` or unbounded `git log` is rewritten by the hook anyway.
 
-Use `$HOME`, never `~`: PowerShell does not expand `~` inside quotes. `$HOME` expands in Bash and PowerShell alike.
-
-- `$WHY src/db/pool.py:80-104` - commits that touched those lines (the enclosing symbol is named). `$WHY src/db/pool.py:88` for one line.
-- `$WHY src/db/pool.py` - the file's history, newest first, 12 rows; `-n 30` for more.
-- `$WHY src/db/pool.py:80-104 --show 9f3c1ab` - only that commit's hunk for those lines.
-- `$WHY --blame src/db/pool.py:80-104` - which commit last touched each run of lines.
+- `nitro why src/db/pool.py:80-104` - commits that touched those lines (the enclosing symbol is named). `nitro why src/db/pool.py:88` for one line.
+- `nitro why src/db/pool.py` - the file's history, newest first, 12 rows; `-n 30` for more.
+- `nitro why src/db/pool.py:80-104 --show 9f3c1ab` - only that commit's hunk for those lines.
+- `nitro why --blame src/db/pool.py:80-104` - which commit last touched each run of lines.
 
 Output:
 ```

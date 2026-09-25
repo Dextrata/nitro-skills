@@ -7,12 +7,10 @@ description: REQUIRED instead of `git diff`, `git diff --cached`, `git show`, or
 
 A raw diff is context lines and noise. `sdiff` maps every hunk to the function or class it lives in and prints one line per symbol: added/removed counts, hunk ids, and whether the change is only whitespace, imports, comments, or a block moved from elsewhere. Real changes get a one-line hint. You then fetch only the hunks you care about.
 
-`SD="python $HOME/.claude/skills/sdiff/scripts/sdiff.py"`
+`nitro sdiff` is the short form; the nitro hook expands `nitro sdiff` to `python $HOME/.claude/skills/sdiff/scripts/sdiff.py`. Without the hook installed, type that path (`$HOME`, never `~`: PowerShell does not expand `~` inside quotes).
 
-Use `$HOME`, never `~` (PowerShell does not expand `~` inside quotes).
-
-- `$SD` - working tree vs index. `$SD --cached` - staged. `$SD HEAD~3` / `$SD main...HEAD` / `$SD -- src/` - any git diff args.
-- `$SD --hunk h4` - one hunk in full. `$SD --file src/x.py` - all hunks of one file.
+- `nitro sdiff` - working tree vs index. `nitro sdiff --cached` - staged. `nitro sdiff HEAD~3` / `nitro sdiff main...HEAD` / `nitro sdiff -- src/` - any git diff args.
+- `nitro sdiff --hunk h4` - one hunk in full. `nitro sdiff --file src/x.py` - all hunks of one file.
 
 Example:
 ```

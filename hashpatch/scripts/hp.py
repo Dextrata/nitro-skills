@@ -1,29 +1,31 @@
 #!/usr/bin/env python3
 """hashpatch: hash-anchored viewing and editing. Executed, never read.
 
-  hp.py view    FILE [START-END]      lines as  N:HHHH|text
-  hp.py outline FILE                  only def/class/func/export lines, with hashes
-  hp.py grep    FILE REGEX [CTX]      matching lines (+CTX context), with hashes
-  hp.py apply   FILE < PATCH          apply a hash-anchored patch (atomic)
-  hp.py apply   FILE --dry < PATCH    validate anchors only
+  hp.py view    FILE [A-B | SYMBOL] [--anchors]   lines as N|text, closed by a lease line
+  hp.py outline FILE                  structure with N:HHHH anchors (code, docs, configs, notebooks)
+  hp.py grep    FILE REGEX [CTX]      matching lines (+CTX context), with anchors
+  hp.py apply   FILE [--dry] [--echo] < PATCH     atomic; prints a receipt, not the lines
 
-Patch grammar (hunks separated by a line that is exactly "@@"):
+A view ends with  [lease FILE A-B h=HHHHHH]  (a hash of exactly those lines). A patch that
+repeats it as  #lease A-B:HHHHHH  may cite bare line numbers inside A-B:
+  #lease 40-80:3f9ac2
   @@
-  @N:HHHH              replace line N with body (empty body = delete line)
-  @N:HHHH-M:HHHH       replace lines N..M with body (empty body = delete)
-  @N:HHHH+             insert body AFTER line N
-  @N:HHHH^             insert body BEFORE line N
-  @0+                  insert body at top of file (or into empty file)
-  <body lines, verbatim, any content except a bare "@@">
+  @42-44           replace lines 42..44 with the body (empty body = delete)
+  @57+             insert body after 57;   @57^ insert before;   @0+ top of file / new file
   @@
-Line numbers always refer to the ORIGINAL file (pre-patch). All anchors are
-verified before anything is written. On success prints new N:HHHH lines for
-each touched region so you don't need to re-view.
+Anchored headers (from grep, outline or view --anchors) need no lease:
+  @N:HHHH   @N:HHHH-M:HHHH   @N:HHHH+   @N:HHHH^
+Line numbers always refer to the ORIGINAL file. Every lease and anchor is verified before
+anything is written; one stale lease or anchor rejects the whole patch. The receipt gives each
+hunk's new span and a fresh lease over the touched region, so a second edit needs no re-view.
 """
 import sys, re, zlib, os
 
 def h(line):
     return format(zlib.crc32(line.rstrip().encode("utf-8", errors="surrogateescape")) & 0xFFFF, "04x")
+
+def lease_hash(lines, a, b):
+    return format(zlib.crc32("\n".join(l.rstrip() for l in lines[a - 1:b]).encode("utf-8", errors="surrogateescape")) & 0xFFFFFF, "06x")
 
 def load(path):
     if not os.path.exists(path):
@@ -40,14 +42,91 @@ load.trailing_nl = True
 def fmt(lines, i):
     return f"{i+1}:{h(lines[i])}|{lines[i]}"
 
-def view(path, rng=None):
+def plain(lines, i):
+    return f"{i+1}|{lines[i]}"
+
+def find_symbol(path, lines, name):
+    """1-based inclusive span of NAME: Python via ast (decorators included, Class.method accepted),
+    markdown by header text, other code by an outline line plus its brace or indentation block."""
+    ext = os.path.splitext(path)[1].lower()
+    short = name.split(".")[-1]
+    if ext in (".py", ".pyi"):
+        import ast
+        try:
+            tree = ast.parse("\n".join(lines))
+        except SyntaxError:
+            tree = None
+        if tree is not None:
+            best = None
+            def walk(node, prefix):
+                nonlocal best
+                for ch in ast.iter_child_nodes(node):
+                    if isinstance(ch, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                        q = prefix + ch.name
+                        if (q == name or ch.name == short) and (best is None or q == name):
+                            best = (min([d.lineno for d in ch.decorator_list] + [ch.lineno]), ch.end_lineno)
+                        walk(ch, q + ".")
+            walk(tree, "")
+            if best:
+                return best
+    if ext in (".md", ".markdown", ".mdx"):
+        hdr = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
+        for i, l in enumerate(lines):
+            m = hdr.match(l)
+            if m and (m.group(2).lower() == name.lower() or name.lower() in m.group(2).lower()):
+                lvl, j = len(m.group(1)), i + 1
+                while j < len(lines):
+                    m2 = hdr.match(lines[j])
+                    if m2 and len(m2.group(1)) <= lvl:
+                        break
+                    j += 1
+                while j - 1 > i and not lines[j - 1].strip():
+                    j -= 1
+                return (i + 1, j)
+        return None
+    rx = re.compile(r"(?<![\w$])" + re.escape(short) + r"(?![\w$])")
+    for i, l in enumerate(lines):
+        if OUTLINE.search(l) and rx.search(l):
+            ind = len(l) - len(l.lstrip())
+            if "{" in l or (i + 1 < len(lines) and lines[i + 1].strip().startswith("{")):
+                depth, opened, j = 0, False, i
+                while j < len(lines):
+                    depth += lines[j].count("{") - lines[j].count("}")
+                    opened = opened or depth > 0
+                    if opened and depth <= 0:
+                        break
+                    j += 1
+                j = min(j + 1, len(lines))
+            else:
+                j = i + 1
+                while j < len(lines) and (not lines[j].strip() or len(lines[j]) - len(lines[j].lstrip()) > ind):
+                    j += 1
+            while j - 1 > i and not lines[j - 1].strip():
+                j -= 1
+            return (i + 1, j)
+    return None
+
+def view(path, target=None, anchors=False):
     lines, _ = load(path)
     a, b = 1, len(lines)
-    if rng:
-        m = re.fullmatch(r"(\d+)(?:-(\d+))?", rng)
-        a = int(m.group(1)); b = int(m.group(2) or a)
-    for i in range(max(a, 1) - 1, min(b, len(lines))):
-        print(fmt(lines, i))
+    if target:
+        m = re.fullmatch(r"(\d+)(?:-(\d+))?", target)
+        if m:
+            a = int(m.group(1)); b = int(m.group(2) or a)
+        else:
+            span = find_symbol(path, lines, target)
+            if not span:
+                print(f"no symbol or section {target!r} in {path}; the outline names what is there:")
+                outline(path)
+                sys.exit(1)
+            a, b = span
+    a, b = max(a, 1), min(b, len(lines))
+    for i in range(a - 1, b):
+        print(fmt(lines, i) if anchors else plain(lines, i))
+    if b >= a:
+        print(f"[lease {path} {a}-{b} h={lease_hash(lines, a, b)}]")
+    else:
+        print(f"[lease {path} empty; file has {len(lines)} lines]")
 
 OUTLINE = re.compile(
     r"^\s*(export\s+)?(async\s+)?(def|class|function|fn|func|struct|enum|interface|type|impl|trait|module|pub fn)\b"
@@ -149,11 +228,17 @@ def grep(path, pat, ctx=0):
                     shown.add(j); print(fmt(lines, j))
             if ctx: print("--")
 
-HDR = re.compile(r"^@(\d+):([0-9a-f]{4})(?:-(\d+):([0-9a-f]{4}))?([+^])?$")
+LEASE = re.compile(r"^\s*#?\s*\[?lease(?:\s+\S+)?\s+(\d+)-(\d+)[: ]\s*h?=?([0-9a-f]{6})\]?\s*$")
+HDR = re.compile(r"^@(\d+)(?::([0-9a-f]{4}))?(?:-(\d+)(?::([0-9a-f]{4}))?)?([+^])?$")
 def parse(text):
-    hunks, cur = [], None
+    leases, hunks, cur = [], [], None
     for raw in text.split("\n"):
         line = raw.rstrip("\r")
+        if cur is None:
+            m = LEASE.match(line)
+            if m:
+                leases.append((int(m.group(1)), int(m.group(2)), m.group(3)))
+                continue
         if line == "@@":
             if cur is not None: cur["closed"] = True; hunks.append(cur); cur = None
             continue
@@ -165,28 +250,43 @@ def parse(text):
             m = HDR.match(line)
             if not m: sys.exit(f"bad hunk header: {line!r}")
             a, ha, b, hb, mode = m.groups()
-            cur = {"a": int(a), "ha": ha, "b": int(b) if b else int(a), "hb": hb, "mode": mode or "=", "body": []}
+            cur = {"a": int(a), "ha": ha, "b": int(b) if b else int(a), "hb": hb if b else ha, "mode": mode or "=", "body": []}
         else:
             cur["body"].append(line)
     if cur is not None:  # unclosed final hunk: drop the blank produced by the trailing newline
         if cur["body"] and cur["body"][-1] == "": cur["body"].pop()
         hunks.append(cur)
-    return hunks
+    return leases, hunks
 
 ORDER = {"^": 0, "=": 1, "+": 2}
 
-def apply(path, text, dry=False):
+def apply(path, text, dry=False, echo=False):
     lines, nl = load(path)
-    hunks = parse(text)
+    leases, hunks = parse(text)
     if not hunks: sys.exit("empty patch")
-    errs = []
+    errs, valid = [], []
+    for a, b, hh in leases:
+        if not (1 <= a <= b <= len(lines)):
+            errs.append(f"lease {a}-{b} out of range (file has {len(lines)} lines)"); continue
+        now = lease_hash(lines, a, b)
+        if now != hh:
+            errs.append(f"stale lease {a}-{b}:{hh}; those lines changed since the view (now h={now}); view them again")
+        else:
+            valid.append((a, b))
     for k in hunks:
+        if k["a"] == 0 and k["mode"] == "+": continue
         for n, hh in ((k["a"], k["ha"]), (k["b"], k["hb"])):
             if hh is None: continue
             if not (1 <= n <= len(lines)):
                 errs.append(f"line {n} out of range (file has {len(lines)})"); continue
             if h(lines[n - 1]) != hh:
                 errs.append(f"stale anchor {n}:{hh}; file now has {fmt(lines, n - 1)}")
+        if k["ha"] is None or k["hb"] is None:
+            where = f"@{k['a']}" + (f"-{k['b']}" if k["b"] != k["a"] else "") + (k["mode"] if k["mode"] != "=" else "")
+            if not (1 <= k["a"] <= len(lines) and 1 <= k["b"] <= len(lines)):
+                errs.append(f"{where} out of range (file has {len(lines)} lines)")
+            elif not any(a <= k["a"] and k["b"] <= b for a, b in valid):
+                errs.append(f"{where} has no anchor and no valid lease covers it; repeat the view's lease line at the top of the patch, or use anchors from grep/outline")
         if k["a"] > k["b"]: errs.append(f"bad range {k['a']}-{k['b']}")
     spans = sorted((k["a"], k["b"]) for k in hunks if k["mode"] == "=")
     for (a1, b1), (a2, b2) in zip(spans, spans[1:]):
@@ -214,26 +314,43 @@ def apply(path, text, dry=False):
     out = nl.join(lines) + (nl if lines and load.trailing_nl else "")
     open(path, "wb").write(out.encode("utf-8", errors="surrogateescape"))
 
-    # report fresh anchors around each touched region (ascending, tracking shift)
+    # receipt: each hunk's new span, then one lease over everything touched (no line echo unless --echo)
     lines, _ = load(path)
-    shift, seen = 0, set()
-    print(f"APPLIED {len(hunks)} hunk(s) to {path}; new anchors:")
-    for k in sorted(hunks, key=lambda k: (k["a"], ORDER[k["mode"]])):
+    shift, lo, hi = 0, None, None
+    print(f"APPLIED {len(hunks)} hunk(s) to {path}")
+    for idx, k in enumerate(sorted(hunks, key=lambda k: (k["a"], ORDER[k["mode"]])), 1):
         a, b, n = k["a"], k["b"], len(k["body"])
         s = (a - 1 if k["mode"] in "=^" else a) + shift
         removed = (b - a + 1) if k["mode"] == "=" else 0
-        for i in range(max(0, s - 1), min(len(lines), s + n + 1)):
-            if i not in seen: seen.add(i); print(fmt(lines, i))
-        print("--")
+        where = f"@{a}" + (f"-{b}" if k["mode"] == "=" and b != a else "") + (k["mode"] if k["mode"] != "=" else "")
+        if n:
+            print(f"  h{idx} {where} -> now {s + 1}" + (f"-{s + n}" if n > 1 else ""))
+            lo = s + 1 if lo is None else min(lo, s + 1); hi = max(hi or 0, s + n)
+        else:
+            print(f"  h{idx} {where} -> deleted")
+            lo = s + 1 if lo is None else min(lo, s + 1); hi = max(hi or 0, s)
+        if echo:
+            for i in range(max(0, s - 1), min(len(lines), s + n + 1)): print(fmt(lines, i))
         shift += n - removed
+    if lines:
+        def moved(b):
+            return b + sum(len(k["body"]) - ((k["b"] - k["a"] + 1) if k["mode"] == "=" else 0) for k in hunks if k["a"] <= b)
+        la = min([a for a, b in valid] + ([lo] if lo else [len(lines)]))
+        lb = max([moved(b) for a, b in valid] + ([hi] if hi else [0]))
+        la, lb = max(1, min(la, len(lines))), max(1, min(max(lb, la), len(lines)))
+        print(f"[lease {path} {la}-{lb} h={lease_hash(lines, la, lb)}]")
+    else:
+        print(f"[lease {path} empty]")
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
     args = sys.argv[1:]
     if not args: sys.exit(__doc__)
     cmd, rest = args[0], args[1:]
-    if cmd == "view":      view(rest[0], rest[1] if len(rest) > 1 else None)
+    flags = {a for a in rest if a.startswith("--")}
+    rest = [a for a in rest if not a.startswith("--")]
+    if cmd == "view":      view(rest[0], rest[1] if len(rest) > 1 else None, anchors="--anchors" in flags)
     elif cmd == "outline": outline(rest[0])
     elif cmd == "grep":    grep(rest[0], rest[1], int(rest[2]) if len(rest) > 2 else 0)
-    elif cmd == "apply":   apply(rest[0], sys.stdin.buffer.read().decode("utf-8", errors="surrogateescape"), dry="--dry" in rest)
+    elif cmd == "apply":   apply(rest[0], sys.stdin.buffer.read().decode("utf-8", errors="surrogateescape"), dry="--dry" in flags, echo="--echo" in flags)
     else: sys.exit(__doc__)
