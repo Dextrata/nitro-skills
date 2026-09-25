@@ -6,6 +6,7 @@ Run: python tests.py
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -72,6 +73,8 @@ class EnforceHookTests(unittest.TestCase):
             ("sed 's/a/b/' s.txt", "deny"), ("cat s.txt | sed 's/a/b/'", "deny"), ("cat s.txt | sd 'a' 'b'", "allow"),
             ("sd 'a' 'b' big.js", "deny"), ("sd -f i 'a' 'b'", "allow"), ("jq . data.json", "deny"), ("curl -s x | jq .", "deny"),
             ("curl -s x | jq -c '.items[0].id'", "allow"), ("jq '.[0]' data.json", "allow"),
+            ("ruff check .", "deny"), ("mypy src", "deny"), ("python ~/.claude/skills/fails/scripts/fails.py pytest -q", "allow"),
+            ("python $HOME/.claude/skills/fails/scripts/fails.py \"npm test\"", "allow"),
         ]
         bad = 0
         for c, exp in cases:
@@ -273,17 +276,6 @@ class SkillsTests(unittest.TestCase):
     def r(self, skill, script, *args, inp=None):
         return run([PY, S(skill, script)] + list(args), self.repo, inp=inp, env=self.env)
 
-    def test_01_believe(self):
-        out, code = self.r("believe", "believe.py", "src/db/pool.py",
-                           "Pool.acquire(timeout) -> 'Conn'; class Pool: acquire, release; imports tenacity; "
-                           "calls log.debug; has 'DEFAULT_TIMEOUT'; no 'asyncio'; lines ~25; decorated acquire @retry; helper(x, y=2)")
-        self.assertEqual(code, 1)
-        self.assertIn("8/9 confirmed", out)
-        self.assertIn("MISMATCH class Pool", out)
-        self.assertIn("has: __init__, acquire, _new", out)
-        out, _ = self.r("believe", "believe.py", "src/app.js", "loadConfig(path, opts); class Server: start, stop; imports fs; calls readFileSync")
-        self.assertIn("3/4 confirmed", out)
-
     def test_02_q_and_blast(self):
         out, _ = self.r("q", "q.py", "calls=acquire", "--cols", "kind,name,file,line,end")
         self.assertIn("get_session", out)
@@ -291,11 +283,12 @@ class SkillsTests(unittest.TestCase):
         out, _ = self.r("q", "q.py", "file~app.js", "--cols", "kind,name,line,end,params,exported")
         self.assertIn("class  Server  5  8", out)
         self.assertIn("method  Server.start", out)
-        out, _ = self.r("blast", "blast.py", "acquire", "--tests")
+        out, _ = self.r("q", "q.py", "blast", "acquire", "--tests")
         self.assertIn("def   method Pool.acquire  src/db/pool.py:13-17", out)
         self.assertIn("get_session", out)
         self.assertIn("tests: tests/test_pool.py", out)
-        out, _ = self.r("blast", "blast.py", "src/db/pool.py:15")
+        self.assertIn("[q blast: acquire, 1 def(s)", out)
+        out, _ = self.r("q", "q.py", "blast", "src/db/pool.py:15")
         self.assertIn("symbol at src/db/pool.py:15: Pool.acquire", out)
 
     def test_03_refactor(self):
@@ -329,50 +322,6 @@ class SkillsTests(unittest.TestCase):
         self.assertRegex(out, r"src/api\.py\s+\+2/-2")
         out, _ = self.r("sdiff", "sdiff.py", "--hunk", "h1")
         self.assertIn("@@", out)
-
-    def test_05_seen(self):
-        self.r("seen", "seen.py", "--reset")
-        out1, _ = self.r("seen", "seen.py", "git diff -- src/db/pool.py")
-        self.assertIn("0 folded", out1)
-        out2, _ = self.r("seen", "seen.py", "git diff -- src/db/pool.py")
-        self.assertIn("[seen #1 L1-", out2)
-        self.assertNotIn("+        try:", out2)
-
-    def test_06_alias(self):
-        self.r("alias", "al.py", "--reset")
-        long = "very/long/path/to/some/module/file.py"
-        out, _ = self.r("alias", "al.py", "--stdin", inp=f"{long}\n{long}\n")
-        self.assertIn(f"§1 = {long}", out)
-        self.assertIn("1 new", out)
-        out, _ = self.r("alias", "al.py", "x", "cat §1")
-        self.assertIn(f"cat {long}", out)
-        p = subprocess.run([PY, H("expand-aliases.py")], cwd=self.repo, env=self.env, capture_output=True,
-                           input=json.dumps({"tool_input": {"command": "cat §1"}, "cwd": self.repo}).encode("utf-8"))
-        self.assertIn(f"cat {long}", p.stdout.decode("utf-8"))
-
-    def test_07_trace(self):
-        tb = textwrap.dedent('''\
-            Traceback (most recent call last):
-              File "app.py", line 4, in <module>
-                a(3)
-              File "app.py", line 3, in a
-                a(n-1)
-              File "app.py", line 3, in a
-                a(n-1)
-              File "/usr/lib/python3.12/site-packages/lib/x.py", line 9, in y
-                z()
-              File "app.py", line 2, in a
-                if n == 0: raise ValueError("boom")
-            ValueError: boom
-            ''')
-        self.w("tb.txt", tb)
-        out, _ = self.r("trace", "trace.py", "--file", "tb.txt")
-        self.assertIn("[trace #1]", out)
-        self.assertIn("(x2)", out)
-        self.assertIn("1 library frame", out)
-        self.assertIn("ValueError: boom", out)
-        out, _ = self.r("trace", "trace.py", "--file", "tb.txt")
-        self.assertIn("same as before", out)
 
     def test_08_mine(self):
         lines = []
@@ -425,7 +374,10 @@ class SkillsTests(unittest.TestCase):
             return p.stdout.decode()
         self.assertIn("produced 201 lines", guard("git log"))
         self.assertEqual("", guard("git log --oneline -5"))
-        self.assertEqual("", guard("python x/seen.py git log"))
+        self.assertEqual("", guard("python x/mine.py git log"))
+        self.assertEqual("", guard("python x/fails.py pytest -q"))
+        self.assertIn("whole-file blame", guard("git blame src/api.py"))
+        self.assertEqual("", guard("git blame -L 10,20 src/api.py"))
         self.assertIn("unbounded flood", guard("curl -s http://x"))
         self.assertEqual("", guard("curl -s http://x | jq -c '.items[].id'"))
         self.assertIn("fd PATTERN", guard("find . -name x"))
@@ -444,6 +396,125 @@ class SkillsTests(unittest.TestCase):
         walked = sorted(q._walk_files(self.repo, set(q.LANG), q.SKIP_DIRS))
         self.assertTrue({"src/api.py", "src/db/pool.py", "tests/test_pool.py"} <= set(walked))
         self.assertEqual(q.list_files(self.repo), walked)
+
+    def test_13_fails(self):
+        log = textwrap.dedent('''\
+            ============================= test session starts =============================
+            collected 3 items
+
+            tests/test_pool.py .FF                                                  [100%]
+
+            ================================== FAILURES ===================================
+            __________________________ test_acquire_timeout _______________________________
+
+                def test_acquire_timeout():
+            >       assert Pool().acquire(timeout=5) == 4
+            E       assert 5 == 4
+
+            tests/test_pool.py:22: AssertionError
+            _____________________________ test_release ____________________________________
+
+                def test_release():
+            >       Pool()._new()
+            E       src.db.pool.PoolExhausted: no connections
+
+            src/db/pool.py:14: PoolExhausted
+            =========================== short test summary info ===========================
+            FAILED tests/test_pool.py::test_acquire_timeout - assert 5 == 4
+            FAILED tests/test_pool.py::test_release - src.db.pool.PoolExhausted: no connections
+            ========================= 2 failed, 1 passed in 0.10s =========================
+            ''')
+        self.w("run1.log", log)
+        out, _ = self.r("fails", "fails.py", "--file", "run1.log")
+        self.assertIn("[fails] pytest: 1 passed, 2 failed", out)
+        self.assertIn("F1        tests/test_pool.py::test_acquire_timeout", out)
+        self.assertIn("assert 5 == 4", out)
+        self.assertIn("tests/test_pool.py:22", out)
+        self.assertIn("first run of this command", out)
+        self.w("run1.log", log.replace("FAILED tests/test_pool.py::test_release - src.db.pool.PoolExhausted: no connections\n",
+                                       "FAILED tests/test_pool.py::test_close - AttributeError: close\n"))
+        out, _ = self.r("fails", "fails.py", "--file", "run1.log")
+        self.assertIn("NEW   tests/test_pool.py::test_close", out)
+        self.assertIn("still tests/test_pool.py::test_acquire_timeout", out)
+        self.assertIn("FIXED tests/test_pool.py::test_release", out)
+        self.assertIn("1 new, 1 still, 1 fixed", out)
+        out, _ = self.r("fails", "fails.py", "--show", "F1")
+        self.assertIn("assert Pool().acquire(timeout=5) == 4", out)
+        self.w("lint.log", "src/a.py:12:5: F401 `os` imported but unused\nsrc/b.py:3:1: E501 Line too long (120 > 88)\n"
+                           "src/c.py:9:1: E501 Line too long (99 > 88)\nFound 3 errors.\n")
+        out, _ = self.r("fails", "fails.py", "--file", "lint.log")
+        self.assertIn("[fails] diagnostics: Found 3 errors.", out)
+        self.assertRegex(out, r"F1  err  E501\s+x2\s+src/b\.py:3 src/c\.py:9")
+        out, code = self.r("fails", "fails.py", PY, "-c", "import sys; print('=== 2 passed in 0.1s ==='); sys.exit(0)")
+        self.assertIn("[fails] pytest: 2 passed", out)
+        self.assertEqual(code, 0)
+
+    def test_14_scout(self):
+        self.w("package.json", json.dumps({"name": "acme-web", "version": "0.3.1", "scripts": {"test": "vitest run", "build": "vite build"},
+                                           "devDependencies": {"vitest": "^1", "typescript": "^5"}}))
+        self.w("pyproject.toml", '[project]\nname = "acme"\nversion = "1.2.0"\nrequires-python = ">=3.11"\ndependencies = ["fastapi"]\n'
+                                 '[tool.ruff]\nline-length = 100\n[tool.pytest.ini_options]\ntestpaths = ["tests"]\n')
+        self.w("Makefile", "test:\n\tpytest -q\nlint:\n\truff check .\n")
+        self.w("Dockerfile", 'FROM python:3.12-slim\nCMD ["python", "-m", "acme"]\n')
+        self.w("README.md", "# Acme\n\n## Install\n\n## Usage\n")
+        out, _ = self.r("scout", "scout.py")
+        self.assertIn("node    package.json acme-web v0.3.1 (npm); scripts: test, build; deps 0 (+2 dev); typescript, vitest", out)
+        self.assertIn("python  pyproject.toml acme v1.2.0 python>=3.11; deps 1; tools: pytest, ruff", out)
+        self.assertIn("tasks   make: test, lint", out)
+        self.assertIn("test: npm test", out)
+        self.assertIn("test (py): pytest -q", out)
+        self.assertIn("lint: make lint", out)
+        self.assertRegex(out, r"layout  src/\s+\d+ files\s+\d+ lines\s+\d+ py 1 js\s+api, app, db")
+        self.assertIn("docker  Dockerfile FROM python:3.12-slim", out)
+        self.assertIn("docs    README.md (5 lines: Acme, Install, Usage)", out)
+        self.assertIn("[scout:", out)
+        out, _ = self.r("scout", "scout.py", "--json")
+        self.assertEqual(json.loads(out)["node"]["name"], "acme-web")
+
+    def test_15_why(self):
+        src = self.rd("src/db/pool.py")
+        n = next(i for i, l in enumerate(src.split("\n"), 1) if "def acquire" in l)
+        rng = f"src/db/pool.py:{n}-{n + 4}"
+        self.w("src/db/pool.py", src.replace("t = 0", "t = 1"))
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "Fix timer #7"], cwd=self.repo)
+        out, _ = self.r("why", "why.py", rng)
+        self.assertIn(f"why {rng} (Pool.acquire)   2 commit(s)", out)
+        self.assertIn("Fix timer #7", out)
+        self.assertIn("init", out)
+        self.assertIn("--show SHA", out)
+        sha = re.search(r"^\s+([0-9a-f]{7,})\s", out, re.M).group(1)
+        out, _ = self.r("why", "why.py", rng, "--show", sha)
+        self.assertIn("+        t = 1", out)
+        out, _ = self.r("why", "why.py", "--blame", rng)
+        self.assertIn("Fix timer #7", out)
+        self.assertIn("2 commit(s)", out)
+        out, _ = self.r("why", "why.py", "src/db/pool.py")
+        self.assertIn("why src/db/pool.py   2 commit(s)", out)
+
+    def test_16_outline_docs(self):
+        self.w("notes.md", "# Title\n\ntext\n\n## Section A\n\nmore\n\n### Sub\n")
+        out, _ = self.r("hashpatch", "hp.py", "outline", "notes.md")
+        self.assertIn("|# Title", out)
+        self.assertIn("|## Section A", out)
+        self.assertIn("[outline: notes.md, 9 lines, 3 entries]", out)
+        self.w("conf.yml", "name: x\non: [push]\njobs:\n  test:\n    runs-on: ubuntu\n  - item: 1\n")
+        out, _ = self.r("hashpatch", "hp.py", "outline", "conf.yml")
+        self.assertIn("|jobs:", out)
+        self.assertIn("|  test:", out)
+        self.assertNotIn("runs-on", out)
+        self.w("Makefile", "test:\n\tpytest\n.PHONY: test\nVAR := 1\n")
+        out, _ = self.r("hashpatch", "hp.py", "outline", "Makefile")
+        self.assertIn("|test:", out)
+        self.assertNotIn("VAR", out)
+        self.w("nb.ipynb", json.dumps({"cells": [{"cell_type": "markdown", "source": ["# Intro\n"]},
+                                                 {"cell_type": "code", "source": ["import os\n", "print(1)\n"], "outputs": [{"x": 1}]}]}, indent=1))
+        out, _ = self.r("hashpatch", "hp.py", "outline", "nb.ipynb")
+        self.assertIn("# cell 1 markdown: # Intro  (2 lines, 0 outputs)", out)
+        self.assertIn("# cell 2 code: import os  (3 lines, 1 outputs)", out)
+        self.w("data.csv", "a,b\n1,2\n3,4\n")
+        out, _ = self.r("hashpatch", "hp.py", "outline", "data.csv")
+        self.assertIn("|a,b", out)
+        self.assertIn("(2 data rows)", out)
 
 
 class InstallerTests(unittest.TestCase):
@@ -500,9 +571,8 @@ class BenchTests(unittest.TestCase):
     def test_markdown_table_covers_every_skill(self):
         import bench
         named = {n.split("-")[0] for n, _, _ in bench.SCENARIOS}
-        skills = {"hashpatch", "rerun", "probe", "seen", "alias", "believe",
-                  "refactor", "mine", "shape", "trace", "sdiff", "q", "blast",
-                  "recall", "budget"}
+        skills = {"hashpatch", "rerun", "fails", "probe", "refactor", "mine", "shape",
+                  "sdiff", "q", "scout", "why", "recall", "budget"}
         self.assertEqual(skills - named, set(), "skills with no bench scenario")
 
 if __name__ == "__main__":

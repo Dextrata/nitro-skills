@@ -40,7 +40,8 @@ Rules, first match wins:
   6. sed used as a stream transform (no -n, no -i) -> use sd: `cmd | sd 'a' 'b'`.
   7. `jq .` / `jq` with no filter (a whole-document dump) -> shape, then
      `--path` or a narrowing jq filter.
-  8. A test/build/lint command not wrapped in rerun (rr.py) -> rerun.
+  8. A test/lint/typecheck command not wrapped in fails (fails.py) or rerun
+     (rr.py) -> fails; a build not wrapped in rerun -> rerun.
 """
 import json
 import os
@@ -62,7 +63,7 @@ JQ_DUMP = re.compile(POS + r"jq(?:\s+-[a-zA-Z]+)*(?:\s+(?:'\.'|\"\.\"|\.))?\s*(?
 REDIRECT = re.compile(r"(?<![0-9&<])>{1,2}\s*([^\s|;&>]+)")
 INLINE = re.compile(POS + r"(?:python3?|py|node)\s+(?:-\S+\s+)*(?:-c|-e|-)(?=\s|$)", re.I)
 WRITES = re.compile(r"open\([^)]*['\"][wa]\+?b?['\"]|\.write_(?:text|bytes)\(|writeFileSync|writeFile\(|Set-Content|Out-File")
-RUNNER = re.compile(POS + r"(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|build|lint|check|typecheck|verify)\S*|npx\s+(?:jest|vitest|mocha|tsc|eslint|playwright|prettier)\b|pytest\b|python3?\s+-m\s+pytest\b|cargo\s+(?:test|build|check|clippy)\b|go\s+(?:test|build|vet)\b|make\b|node\s+--test\b|dotnet\s+(?:test|build)\b|mvn\b|gradle\b)", re.I)
+RUNNER = re.compile(POS + r"(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|build|lint|check|typecheck|verify)\S*|npx\s+(?:jest|vitest|mocha|tsc|eslint|playwright|prettier)\b|pytest\b|python3?\s+-m\s+(?:pytest|unittest|mypy|ruff|flake8|pylint)\b|cargo\s+(?:test|build|check|clippy)\b|go\s+(?:test|build|vet)\b|make\b|node\s+--test\b|dotnet\s+(?:test|build)\b|mvn\b|gradle\b|ruff\s+(?:check|format)\b|mypy\b|pyright\b|flake8\b|pylint\b|eslint\b|tsc\b|jest\b|vitest\b|mocha\b)", re.I)
 SD_VALUE_FLAGS = {"-f", "--flags", "-n", "--max-replacements"}
 
 
@@ -181,9 +182,10 @@ def main():
         return deny("An inline script that writes files is blocked. Use the hashpatch skill (`apply`) for edits; "
                     "plain Write is fine for a brand-new file.")
 
-    if RUNNER.search(cmd) and "rr.py" not in cmd:
-        return deny("Test/build/lint commands go through the rerun skill so repeat runs print only the diff: "
-                    "`python $HOME/.claude/skills/rerun/scripts/rr.py \"<command>\"` (quote a command that has pipes; use $HOME, not ~, so PowerShell expands it).")
+    if RUNNER.search(cmd) and "rr.py" not in cmd and "fails.py" not in cmd:
+        return deny("Tests, linters and type checks go through the fails skill so only failures and the new/still/fixed delta print: "
+                    "`python $HOME/.claude/skills/fails/scripts/fails.py \"<command>\"`. Builds and other repeatable commands go through rerun "
+                    "(`python $HOME/.claude/skills/rerun/scripts/rr.py \"<command>\"`). Quote a command that has pipes; use $HOME, not ~, so PowerShell expands it.")
     return 0
 
 

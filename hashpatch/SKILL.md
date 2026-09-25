@@ -1,6 +1,6 @@
 ---
 name: hashpatch
-description: REQUIRED for any edit to an existing file, and for viewing part of one. Replaces Read+Edit with hash-anchored line ops (outline/grep/view/apply) so you never re-transmit code you already saw. Use before Read or Edit on any file that already exists, no matter how small the change. Skip only for brand-new files (use Write) or a file already fully outlined/viewed this turn.
+description: REQUIRED for any edit to an existing file, and for viewing part of one. Replaces Read+Edit with hash-anchored line ops (outline/grep/view/apply) so you never re-transmit code you already saw. `outline` understands code (def/class/function/export/constants) and also markdown headers, YAML/TOML/INI/JSON keys, Makefile targets, Dockerfile stages, shell functions, SQL statements, CSS selectors, HTML sections and notebook cells. Use before Read or Edit on any file that already exists, no matter how small the change. Skip only for brand-new files (use Write) or a file already fully outlined/viewed this turn.
 ---
 
 # hashpatch
@@ -12,7 +12,7 @@ Edit files by *pointing* at lines, not by quoting them. Every line is shown as `
 Use `$HOME`, never `~`: PowerShell does not expand `~` inside quotes, so `python "~/..."` fails with "can't open file". `$HOME` expands in Bash and PowerShell alike.
 
 ## Locate (cheap)
-- `$HP outline FILE` - only def/class/function/export lines. Start here, not with a full read.
+- `$HP outline FILE` - the file's structure with line numbers: def/class/function/export/ALL_CAPS constants in code; `#` headers in markdown; top-level keys in YAML/TOML/INI/JSON/.env; Makefile targets; Dockerfile FROM/WORKDIR/CMD; shell/PowerShell functions; SQL statements; CSS selectors; HTML sections; one line per notebook cell. Ends with `[outline: FILE, N lines, K entries]`. Start here, not with a full read, for any file type.
 - `$HP grep FILE REGEX [CTX]` - matching lines, optional context lines.
 - `$HP view FILE A-B` - a slice. Widen only if you genuinely need more.
 
@@ -33,7 +33,7 @@ EOF
 - `@N:H` replace one line; `@N:H-M:H` replace range; empty body = delete.
 - `@N:H+` insert after; `@N:H^` insert before; `@0+` insert at top / create file.
 - Line numbers are from the ORIGINAL file. Put several hunks in one call; the tool handles offsets.
-- Body lines are verbatim. A body may not contain a bare `@@` line.
+- Body lines are verbatim (read as UTF-8). A body may not contain a bare `@@` line.
 - On success the tool prints fresh `N:HHHH` anchors for each touched region. Trust them and do not re-view.
 - `$HP apply FILE --dry` validates anchors without writing.
 
@@ -41,3 +41,4 @@ EOF
 1. Anchor hashes come only from tool output in this conversation. Never guess or fabricate one.
 2. If apply says REJECTED, re-`view` the cited lines and retry. Nothing was written.
 3. For brand-new files or total rewrites, plain Write is fine. hashpatch is for surgery.
+4. A CSV outline prints the header and the row count; a minified JSON outline points you at the shape skill. Neither should be viewed whole.

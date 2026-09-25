@@ -53,12 +53,90 @@ OUTLINE = re.compile(
     r"^\s*(export\s+)?(async\s+)?(def|class|function|fn|func|struct|enum|interface|type|impl|trait|module|pub fn)\b"
     r"|^\s*(export\s+)?(const|let|var)\s+\w+\s*=\s*(async\s*)?(\(|function)"
     r"|^\s*(public|private|protected|static)\s"
-    r"|^\s*@\w+|^\s*#\[")
+    r"|^\s*@\w+|^\s*#\[|^(export\s+)?(const\s+)?[A-Z][A-Z0-9_]{2,}\s*(:[^=]+)?=")
+_H = re.compile(r"^#{1,6} \S")
+_SEC = re.compile(r"^\[.*\]\s*$")
+_KV = re.compile(r"^[A-Za-z_][\w.-]*\s*=")
+_MAKE = re.compile(r"^[A-Za-z0-9_.\-/$()%]+\s*:(?!=)")
+_SH = re.compile(r"^\s*(function\s+[\w-]+|[\w-]+\s*\(\)\s*\{?\s*$)")
+_XML = re.compile(r"^\s{0,4}<[A-Za-z][\w:.-]*(\s|>|/)")
+_CSS = re.compile(r"^[^\s{}/][^{;]*\{\s*$|^@(media|import|font-face|keyframes|layer|mixin|function)\b|^\$[\w-]+:|^--[\w-]+:")
+_HTML = re.compile(r"^\s*<(h[1-6]|section|article|nav|header|footer|main|form|table|script|style|template|title|body|head)\b|^\s*<[a-z][\w-]*[^>]*\bid=", re.I)
+DOC_OUTLINE = {
+    "md": _H, "markdown": _H, "mdx": _H,
+    "yml": re.compile(r"^ {0,2}[A-Za-z_\"'$][^:#]*:(\s|$)"), "toml": _SEC, "ini": _SEC, "cfg": _SEC, "conf": _SEC,
+    "env": _KV, "properties": _KV, "json": re.compile(r'^(\s{0,2}|\t)"[^"]+"\s*:'),
+    "makefile": _MAKE, "dockerfile": re.compile(r"^(FROM|WORKDIR|EXPOSE|ENTRYPOINT|CMD|ARG|USER|VOLUME|HEALTHCHECK)\b", re.I),
+    "sh": _SH, "bash": _SH, "zsh": _SH, "fish": _SH, "ps1": re.compile(r"^\s*(function|filter|class|enum|param)\b", re.I),
+    "sql": re.compile(r"^\s*(create|alter|drop|insert|update|delete|select|with|merge|truncate|grant|begin|declare)\b", re.I),
+    "css": _CSS, "scss": _CSS, "less": _CSS, "html": _HTML, "htm": _HTML, "vue": _HTML, "svelte": _HTML, "jinja": _HTML, "njk": _HTML,
+    "xml": _XML, "csproj": _XML, "fsproj": _XML, "plist": _XML, "xsd": _XML, "svg": _XML, "xaml": _XML,
+    "proto": re.compile(r"^\s*(message|service|rpc|enum|package|import|option)\b"),
+    "tf": re.compile(r"^(resource|module|variable|output|provider|data|locals|terraform)\b"),
+    "graphql": re.compile(r"^(type|input|enum|interface|union|scalar|schema|query|mutation|subscription|fragment|extend|directive)\b"),
+}
+for _a, _b in (("yaml", "yml"), ("psm1", "ps1"), ("hcl", "tf"), ("gql", "graphql"), ("mk", "makefile"), ("justfile", "makefile")):
+    DOC_OUTLINE[_a] = DOC_OUTLINE[_b]
+
+def _outline_ipynb(lines):
+    import json
+    try:
+        nb = json.loads("\n".join(lines))
+    except ValueError:
+        return 0
+    idxs = [i for i, l in enumerate(lines) if '"cell_type"' in l]
+    n = 0
+    for k, c in enumerate(nb.get("cells", [])):
+        src = c.get("source", "")
+        src = "".join(src) if isinstance(src, list) else src
+        first = next((s for s in src.split("\n") if s.strip()), "")[:70]
+        outs = len(c.get("outputs", [])) if c.get("cell_type") == "code" else 0
+        head = fmt(lines, idxs[k]) if k < len(idxs) else "?:????|"
+        print(f"{head}  # cell {k + 1} {c.get('cell_type')}: {first}  ({src.count(chr(10)) + 1} lines, {outs} outputs)")
+        n += 1
+    return n
+
 def outline(path):
     lines, _ = load(path)
-    for i, l in enumerate(lines):
-        if OUTLINE.search(l):
-            print(fmt(lines, i))
+    base = os.path.basename(path).lower()
+    ext = base.rsplit(".", 1)[-1] if "." in base[1:] else base
+    if base.startswith("dockerfile") or base.endswith(".dockerfile"):
+        ext = "dockerfile"
+    elif base in ("makefile", "gnumakefile", "justfile", ".justfile"):
+        ext = "makefile"
+    elif base.startswith(".env"):
+        ext = "env"
+    n = 0
+    if ext == "ipynb":
+        n = _outline_ipynb(lines)
+    elif ext in ("csv", "tsv"):
+        if lines:
+            print(fmt(lines, 0)[:300])
+        print(f"[outline: {path}, {len(lines)} lines ({max(len(lines) - 1, 0)} data rows); the shape skill gives column stats]")
+        return
+    elif ext == "rst":
+        for i in range(len(lines) - 1):
+            if lines[i].strip() and re.fullmatch(r"[=\-~^\"'`#*+]{3,}", lines[i + 1].strip()) and len(lines[i + 1].strip()) >= len(lines[i].strip()):
+                print(fmt(lines, i)); n += 1
+    else:
+        rx = DOC_OUTLINE.get(ext, OUTLINE)
+        in_section = False
+        for i, l in enumerate(lines):
+            if ext == "toml" and not in_section:
+                in_section = l.startswith("[")
+                if not in_section and _KV.match(l):
+                    print(fmt(lines, i)); n += 1
+                    continue
+            if rx.search(l):
+                print(fmt(lines, i)[:300]); n += 1
+    if n:
+        print(f"[outline: {path}, {len(lines)} lines, {n} entries]")
+    elif ext == "json":
+        print(f"[outline: {path}, {len(lines)} lines, no top-level keys on their own lines; use the shape skill (--file) for its schema]")
+    else:
+        for i in range(min(3, len(lines))):
+            print(fmt(lines, i)[:300])
+        print(f"[outline: {path}, {len(lines)} lines, no structure recognized; first 3 shown, use view A-B or grep]")
 
 def grep(path, pat, ctx=0):
     lines, _ = load(path)
@@ -157,5 +235,5 @@ if __name__ == "__main__":
     if cmd == "view":      view(rest[0], rest[1] if len(rest) > 1 else None)
     elif cmd == "outline": outline(rest[0])
     elif cmd == "grep":    grep(rest[0], rest[1], int(rest[2]) if len(rest) > 2 else 0)
-    elif cmd == "apply":   apply(rest[0], sys.stdin.read(), dry="--dry" in rest)
+    elif cmd == "apply":   apply(rest[0], sys.stdin.buffer.read().decode("utf-8", errors="surrogateescape"), dry="--dry" in rest)
     else: sys.exit(__doc__)

@@ -5,6 +5,9 @@ Executed, never read.
   q.py "FILTER FILTER ..." [--cols name,file,line,...] [--limit N]
   q.py --reindex                       rebuild the symbol index for this tree
   q.py --stats                         index size and languages
+  q.py blast NAME [--depth N] [--tests]  impact set of NAME before you change it: its definition(s),
+                                       what it calls, every caller grouped by enclosing symbol, tests
+  q.py blast FILE:LINE                 resolve the symbol at that line first
 
 Rows are symbols: functions, methods, classes (Python via ast; JS/TS/Go/Rust/
 Java/Ruby via patterns). Columns:
@@ -240,6 +243,80 @@ def match(row, filters):
     return True
 
 
+def _refs(name, rows, exclude_def=True):
+    """(file, line, text) for every word-boundary occurrence of NAME outside its definitions."""
+    short = name.split(".")[-1]
+    rx = re.compile(r"(?<![\w$])" + re.escape(short) + r"(?![\w$])")
+    defs = {(r["file"], r["line"]) for r in rows if r["name"].split(".")[-1] == short}
+    out = []
+    for p in list_files():
+        try:
+            src = open(p, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        if short not in src:
+            continue
+        for i, l in enumerate(src.split("\n"), 1):
+            if rx.search(l) and not (exclude_def and (p, i) in defs):
+                out.append((p, i, l.strip()[:90]))
+    return out
+
+
+def _enclosing(by_file, path, line):
+    best = None
+    for r in by_file.get(path, []):
+        if r["line"] <= line <= r["end"] and (best is None or r["len"] < best["len"]):
+            best = r
+    return best["name"] if best else "(module level)"
+
+
+def blast(rows, name, depth=1, tests=False):
+    """Impact set of NAME: definition(s), callees, callers grouped by enclosing symbol, tests that mention it."""
+    by_file = {}
+    for r in rows:
+        by_file.setdefault(r["file"], []).append(r)
+    m = re.match(r"^(.+):(\d+)$", name)
+    if m:
+        name = _enclosing(by_file, m.group(1).replace("\\", "/"), int(m.group(2)))
+        print(f"symbol at {m.group(0)}: {name}")
+    short = name.split(".")[-1]
+    defs = [r for r in rows if r["name"] == name or r["name"].split(".")[-1] == short]
+    if not defs:
+        print(f"[q blast: no definition of {name} in index; try q --reindex]")
+    for r in defs:
+        print(f"def   {r['kind']} {r['name']}  {r['file']}:{r['line']}-{r['end']}  ({r['params'][:80]})")
+    callees = sorted({c for r in defs for c in r["calls"]})
+    if callees:
+        local = {c for c in callees if any(x["name"] == c or x["name"].split(".")[-1] == c.split(".")[-1] for x in rows)}
+        print(f"calls {len(callees)}: " + ", ".join(sorted(local))[:300] + (f"  (+{len(callees) - len(local)} external)" if len(callees) > len(local) else ""))
+    frontier, seen_syms, level, total = {name}, set(), 1, 0
+    while frontier and level <= depth:
+        next_frontier = set()
+        for sym in sorted(frontier):
+            rs = _refs(sym, rows)
+            groups = {}
+            for p, ln, txt in rs:
+                groups.setdefault((p, _enclosing(by_file, p, ln)), []).append((ln, txt))
+            if level > 1 and not rs:
+                continue
+            print(f"{'callers' if level == 1 else 'level ' + str(level)} of {sym}: {len(rs)} refs in {len(groups)} symbols")
+            for (p, enc), items in sorted(groups.items()):
+                lines = ",".join(str(ln) for ln, _ in items[:6]) + (",…" if len(items) > 6 else "")
+                print(f"    {enc:<36} {p}:{lines}   {items[0][1][:60]}")
+                total += len(items)
+                if enc != "(module level)" and enc not in seen_syms:
+                    next_frontier.add(enc)
+        seen_syms |= frontier
+        frontier = next_frontier - seen_syms
+        level += 1
+    if tests:
+        t = sorted({p for p, _, _ in _refs(name, rows, exclude_def=False)
+                    if re.search(r"(^|/)(tests?|spec|__tests__)(/|_|\.)|\.test\.|\.spec\.|_test\.", p)})
+        print("tests: " + (", ".join(t) if t else "none mention it"))
+    print(f"[q blast: {name}, {len(defs)} def(s), {total} refs]")
+    return 0
+
+
 def main(a):
     if not a or a[0] in ("-h", "--help"):
         print(__doc__)
@@ -255,6 +332,21 @@ def main(a):
             langs[r["lang"]] = langs.get(r["lang"], 0) + 1
         print(f"[q: {len(rows)} symbols; " + ", ".join(f"{k}={v}" for k, v in sorted(langs.items())) + "]")
         return 0
+    if a[0] in ("blast", "--blast"):
+        if len(a) < 2:
+            print("usage: q.py blast NAME|FILE:LINE [--depth N] [--tests]")
+            return 2
+        depth, tests, i = 1, False, 2
+        while i < len(a):
+            if a[i] == "--depth":
+                depth = int(a[i + 1])
+                i += 2
+            elif a[i] == "--tests":
+                tests = True
+                i += 1
+            else:
+                i += 1
+        return blast(rows, a[1], depth, tests)
     cols, limit, query = ["kind", "name", "file", "line", "len"], 50, []
     i = 0
     while i < len(a):

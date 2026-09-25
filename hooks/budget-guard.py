@@ -3,8 +3,8 @@
 context. Two signals, first match wins:
 
   1. History: budget-record.py saw this command shape produce > CAP lines
-     before, and it is not wrapped in a shaping skill (seen, alias, mine,
-     shape, trace, rerun, sdiff) or bounded (| head, --max-count, -n N, --stat).
+     before, and it is not wrapped in a shaping skill (mine, shape, fails,
+     rerun, sdiff, why, scout) or bounded (| head, --max-count, -n N, --stat).
   2. Known floods with no bound: git log without -n/--oneline, find/ls -R,
      tree, pip freeze/list, npm ls, du, env/printenv, curl without shaping,
      cat of a .json/.csv/.log file, jq . on a file, docker logs, journalctl,
@@ -21,11 +21,12 @@ CAP = 120
 SKIP = "#nitro-skip"
 HERE = os.path.dirname(os.path.abspath(__file__))
 BP = os.path.join(os.path.dirname(HERE), "budget", "scripts", "budget.py")
-SHAPED = re.compile(r"(seen|al|mine|shape|trace|rr|sdiff|hp|q|blast)\.py\b")
+SHAPED = re.compile(r"(mine|shape|fails|rr|sdiff|hp|q|scout|why|probe|rf|recall|budget)\.py\b")
 BOUNDED = re.compile(r"\|\s*(head|tail|wc|rg|sd|sort\s+.*\|\s*head)\b|\|\s*jq\s+(?!['\"]?\.['\"]?\s*($|[|;&]))|--max-count|\s-m\s*\d|--oneline|--stat\b|\s-n\s*\d+|--limit|-\-json\s+\S+\s*\|", re.I)
 POS = r"(?:^|[\n;|&(`]|\$\()\s*(?:sudo\s+)?"
 FLOODS = [
-    (re.compile(POS + r"git\s+log\b(?!.*(-n\s*\d|-\d|--oneline|--max-count|-p\s+\S))", re.I), "git log without a bound", "`$SEEN git log --oneline -20`"),
+    (re.compile(POS + r"git\s+log\b(?!.*(-n\s*\d|-\d|--oneline|--max-count|-p\s+\S))", re.I), "git log without a bound", "`git log --oneline -20`, or the why skill for one file's history (`$WHY FILE`, `$WHY FILE:A-B`)"),
+    (re.compile(POS + r"git\s+blame\b(?!.*\s-L\s*\d)", re.I), "whole-file blame", "the why skill: `$WHY --blame FILE:A-B` or `$WHY FILE:A-B`"),
     (re.compile(POS + r"(find\s+\S|ls\s+-[a-zA-Z]*R|tree\b|Get-ChildItem\s+.*-Recurse)", re.I), "recursive listing", "`fd PATTERN` (gitignore-aware; `-e EXT`, `-t f`) or `q` for symbols"),
     (re.compile(POS + r"(pip\s+(freeze|list)|npm\s+(ls|list)|pnpm\s+list|yarn\s+list|cargo\s+tree|du\s|env\b|printenv\b|Get-ChildItem\s+env:)", re.I), "environment/dependency dump", "`$SHAPE CMD` or `rg PATTERN -` on it"),
     (re.compile(POS + r"(curl|wget|http|Invoke-WebRequest|Invoke-RestMethod|gh\s+api|aws\s+\S+\s+\S+|kubectl\s+get\b.*-o\s*(json|yaml))", re.I), "API/JSON payload", "`$SHAPE CMD` then `--path`, or pipe into a narrowing `jq` filter"),
@@ -54,7 +55,7 @@ def main():
         n = None
     if n is not None and n > CAP:
         return deny(f"budget: this command shape produced {n} lines last time (cap {CAP}). "
-                    "Route it through seen/mine/shape/trace/rerun, or bound it with | head / -n.")
+                    "Route it through mine/shape/fails/rerun/why, or bound it with | head / -n.")
     for rx, what, fix in FLOODS:
         if rx.search(cmd):
             return deny(f"budget: {what} is an unbounded flood. Use {fix}.")

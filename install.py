@@ -27,9 +27,14 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILLS = [
-    "hashpatch", "rerun", "probe", "seen", "alias", "believe", "refactor",
-    "mine", "shape", "trace", "sdiff", "q", "blast", "recall", "budget",
+    "hashpatch", "rerun", "fails", "probe", "refactor", "mine", "shape",
+    "sdiff", "q", "scout", "why", "recall", "budget",
 ]
+# Retired skills and hooks: pruned from ~/.claude on install so stale copies
+# do not keep loading. seen/alias/believe/trace/blast were folded into the
+# skills above (blast -> `q blast`, trace -> fails) or dropped as ineffective.
+REMOVED_SKILLS = ["seen", "alias", "believe", "trace", "blast"]
+REMOVED_HOOKS = ["expand-aliases.py"]
 CLAUDE_HOME = os.path.join(os.path.expanduser("~"), ".claude")
 SKILLS_DIR = os.path.join(CLAUDE_HOME, "skills")
 SETTINGS_PATH = os.path.join(CLAUDE_HOME, "settings.json")
@@ -60,6 +65,12 @@ def copy_skills():
         if os.path.isdir(dst):
             shutil.rmtree(dst)
         shutil.copytree(src, dst)
+    for name in REMOVED_SKILLS:
+        dst = os.path.join(SKILLS_DIR, name)
+        if os.path.isdir(dst):
+            say(f"  removing retired skill {name} from {dst}")
+            if not DRY:
+                shutil.rmtree(dst)
 
 
 def hook_path(name):
@@ -82,6 +93,12 @@ def copy_hooks():
         say(f"  {name} -> {dst}")
         if not DRY:
             shutil.copy2(src, dst)
+    for name in REMOVED_HOOKS:
+        dst = os.path.join(dst_dir, name)
+        if os.path.isfile(dst):
+            say(f"  removing retired hook {name}")
+            if not DRY:
+                os.remove(dst)
 
 
 def python_cmd():
@@ -115,7 +132,7 @@ def merge_hooks(settings):
         entry["hooks"].append(build_hook_entry(hook_name))
 
     bash_pre = find_matcher(pre, "Bash|PowerShell")
-    for hook_name in ("enforce-nitro-bash.py", "expand-aliases.py", "budget-guard.py"):
+    for hook_name in ("enforce-nitro-bash.py", "budget-guard.py"):
         ensure_hook(bash_pre, hook_name)
 
     read_pre = find_matcher(pre, "Read")
@@ -123,6 +140,9 @@ def merge_hooks(settings):
 
     bash_post = find_matcher(post, "Bash|PowerShell")
     ensure_hook(bash_post, "budget-record.py")
+    for entry in pre + post:
+        entry["hooks"] = [h for h in entry.get("hooks", [])
+                          if not any(r in h.get("command", "") for r in REMOVED_HOOKS)]
 
     return settings
 

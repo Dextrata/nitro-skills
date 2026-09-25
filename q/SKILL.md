@@ -1,6 +1,6 @@
 ---
 name: q
-description: REQUIRED instead of a chain of two or more rg/grep/glob calls to answer a structural question about the code — "which functions call X", "what classes live under src/api", "which handlers are async", "find the longest functions", "who is decorated with @route", "what does module M define". One query over a cached symbol index replaces the whole rg hop sequence and its overlapping output.
+description: REQUIRED instead of a chain of two or more rg/grep/glob calls to answer a structural question about the code — "which functions call X", "what classes live under src/api", "which handlers are async", "find the longest functions", "who is decorated with @route", "what does module M define" — and REQUIRED as `q blast NAME` before changing a function's signature, renaming a symbol, deleting code, or whenever you are about to rg for a name "to see who uses it". One query over a cached symbol index replaces the whole rg hop sequence and its overlapping output.
 ---
 
 # q
@@ -11,6 +11,7 @@ Ripgrep answers "which lines contain this text". Most code questions are really 
 
 Use `$HOME`, never `~` (PowerShell does not expand `~` inside quotes).
 
+## Query
 - `$Q "calls=db.query"` - every symbol that calls `db.query`.
 - `$Q "kind=function file~^src/api/ params~request" --cols name,file,line,params`
 - `$Q "deco=app.route" --cols name,file,line` / `$Q "name~^test_ len>60 sort=-len"`
@@ -20,7 +21,24 @@ Use `$HOME`, never `~` (PowerShell does not expand `~` inside quotes).
 
 Columns: kind name file line end len params calls deco ret doc exported lang. Operators: `=` `!=` `~` `!~` `>` `<` `>=` `<=`; `sort=col` / `sort=-col`; `--limit N`.
 
+## Blast radius (before an edit)
+- `$Q blast acquire` / `$Q blast Pool.acquire` - the definition(s), what it calls, every caller grouped by the symbol it sits in.
+- `$Q blast src/db/pool.py:88` - resolve the symbol at that line first. `--depth 2` adds callers of the callers; `--tests` lists test files that mention it.
+
+```
+def   method Pool.acquire  src/db/pool.py:80-104  (self, timeout=None)
+calls 4: Pool._new, Pool._check, log.debug, time.monotonic
+callers of acquire: 7 refs in 4 symbols
+    get_session                          src/api/deps.py:31   conn = await pool.acquire(timeout=5)
+    Worker.run                           src/jobs/worker.py:58,71
+    test_acquire_timeout                 tests/test_pool.py:22,25,30
+    (module level)                       scripts/warm.py:9
+tests: tests/test_pool.py, tests/test_deps.py
+[q blast: acquire, 1 def(s), 7 refs]
+```
+
 ## Rules
 1. Ask the question as one query. If you find yourself planning a second rg to narrow the first, that is a `q` query.
 2. `calls=` is exact (or dotted-suffix) match; `calls~` is regex. `name=foo` also matches `Class.foo`.
 3. Results give `file line end`. Feed those straight to hashpatch `view` when you need the body; do not rg for the definition again.
+4. Run `blast` once before the edit, not rg five times. The caller list is the checklist of places to re-check afterwards; `(module level)` refs are usually imports and matter for renames, not behavior changes.

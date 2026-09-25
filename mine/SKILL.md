@@ -1,6 +1,6 @@
 ---
 name: mine
-description: REQUIRED for any command expected to print more than ~100 lines of log-like output — build logs, server logs, CI output, install/download output, verbose test runs, docker/kubectl logs, tail of a log file. Clusters the lines into templates with counts so 10,000 lines become a 20-line table. Never dump or tail a big log into context; mine it.
+description: REQUIRED for any command expected to print more than ~100 lines of log-like output — build logs, server logs, CI output, install/download output, docker/kubectl logs, tail of a log file. Clusters the lines into templates with counts so 10,000 lines become a 20-line table. Never dump or tail a big log into context; mine it.
 ---
 
 # mine
@@ -21,4 +21,4 @@ Example row: `  2 x184   L12-2210   <ts> GET <path> <n> <*>ms   [4:12|37]`
 ## Rules
 1. `--keep` is how you see the errors; do not re-run the command bare to "see the real output".
 2. Use `--show ID` only for the one template you need to investigate.
-3. For test suites prefer `rerun`; use `mine` when the output is a stream of similar lines rather than a pass/fail list.
+3. For test suites, linters and type checkers use `fails`; for a build you will run again use `rerun`. `mine` is for output that is a stream of similar lines rather than a pass/fail list.

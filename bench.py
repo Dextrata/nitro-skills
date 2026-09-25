@@ -11,7 +11,7 @@ characters / 4, the same convention the README uses.
   python bench.py NAME...      run only the named scenarios
 
 Fixtures are built in a temp dir; nothing in the repo is touched. Scenarios
-whose skill depends on session state (seen, rerun, alias, trace, recall, budget)
+whose skill depends on session state (rerun, fails, recall, budget)
 run the underlying command twice and measure the second run, because that is
 where the skill pays off -- the first run is the baseline it stores.
 """
@@ -208,44 +208,6 @@ def sc_rerun(d):
     return raw, second, "full 300-line output every run", "diff vs stored baseline"
 
 
-def sc_seen(d):
-    p = os.path.join(d, "mod.py")
-    big_module(p)
-    sn = script("seen", "seen.py")
-    first = run([sn, PY, "-c", f"print(open(r'{p}',encoding='utf-8').read())"], d)
-    second = run([sn, PY, "-c", f"print(open(r'{p}',encoding='utf-8').read())"], d)
-    raw = subprocess.run([PY, "-c", f"print(open(r'{p}',encoding='utf-8').read())"],
-                         cwd=d, capture_output=True, text=True).stdout
-    return raw, second, "re-printing output already shown", "folded pointers to earlier blocks"
-
-
-def sc_alias(d):
-    # The realistic shape: a handful of long strings (a deep package prefix, a
-    # commit sha, a fully-qualified class) recurring across many lines -- not a
-    # unique long name per line, which nothing can compress.
-    deep = os.path.join(d, "src", "main", "generated", "protocol", "handlers")
-    os.makedirs(deep)
-    pkg = "com.example.platform.protocol.handlers.RequestDispatchHandler"
-    sha = "9f3c1ab77d24e8b05c6e1f4a3b2d9e8c7a6b5f40"
-    raw = []
-    for i in range(40):
-        f = os.path.join(deep, "dispatch.py")
-        raw.append(f"{f}:{i}: {pkg}.handle failed at {sha} (attempt {i})")
-    raw = "\n".join(raw) + "\n"
-    out = run([script("alias", "al.py"), "--stdin"], d, stdin=raw)
-    return raw, out, "repeated deep paths verbatim", "§N tokens + one legend"
-
-
-def sc_believe(d):
-    p = os.path.join(d, "mod.py")
-    src = big_module(p)
-    claims = ("helper_3(value, flag=False, *, name='h3'); "
-              "class Encoder: encode, encode_string; "
-              "imports json; calls json.dumps")
-    out = run([script("believe", "believe.py"), p, claims], d)
-    return src, out, "re-reading the file to confirm", "OK/MISMATCH per claim"
-
-
 def sc_refactor(d):
     for i in range(6):
         p = os.path.join(d, f"m{i}.py")
@@ -277,16 +239,6 @@ def sc_shape(d):
     return raw, out, "cat a 400-item JSON response", "schema + 3 samples"
 
 
-def sc_trace(d):
-    p = os.path.join(d, "crash.py")
-    crashing_script(p)
-    tr = script("trace", "trace.py")
-    raw = subprocess.run([PY, p], cwd=d, capture_output=True, text=True).stderr
-    first = run([tr, PY, p], d)
-    second = run([tr, PY, p], d)   # same crash again while iterating
-    return raw + raw, first + second, "full traceback, twice while iterating", "user frames once, then a pointer"
-
-
 def sc_sdiff(d):
     git_repo(d)
     raw = subprocess.run(["git", "diff"], cwd=d, capture_output=True, text=True).stdout
@@ -310,7 +262,7 @@ def sc_q(d):
     return baseline, out, "4 chained rg calls with overlapping hits", "2 index queries"
 
 
-def sc_blast(d):
+def sc_q_blast(d):
     for i in range(5):
         p = os.path.join(d, f"m{i}.py")
         body = "\n".join(
@@ -321,8 +273,8 @@ def sc_blast(d):
         "def target_fn(arg, n):\n    return arg * n\n")
     baseline = rg(["-n", "-C", "3", "target_fn", "."], d)
     run([script("q", "q.py"), "--reindex"], d)
-    out = run([script("blast", "blast.py"), "target_fn"], d)
-    return baseline, out, "rg -C 3 for every mention", "def + callers grouped + callees"
+    out = run([script("q", "q.py"), "blast", "target_fn"], d)
+    return baseline, out, "rg -C 3 for every mention", "q blast: def + callers grouped + callees"
 
 
 def sc_recall(d):
@@ -347,21 +299,120 @@ def sc_budget(d):
     return raw, out, "running the command and flooding context", "predicted size, denied before the flood"
 
 
+def _git(d, *a):
+    subprocess.run(["git", "-c", "user.email=b@e.com", "-c", "user.name=bench"] + list(a), cwd=d, capture_output=True, text=True)
+
+
+def sc_fails(d):
+    # a 300-test pytest run with 3 failures, run twice; the edit in between fixes one and breaks another
+    def log(fails):
+        L = ["============================= test session starts =============================", "collected 300 items", ""]
+        for i in range(0, 300, 60):
+            L.append("tests/test_mod.py " + "".join("F" if (i + j) in fails else "." for j in range(60)) + f"   [{(i + 60) * 100 // 300:3d}%]")
+        L += ["", "================================== FAILURES ==================================="]
+        for f in fails:
+            L += [f"___________________________ test_case_{f:03d} ____________________________", "",
+                  f"    def test_case_{f:03d}():", f">       assert compute({f}) == {f + 1}", f"E       assert {f} == {f + 1}",
+                  f"E        +  where {f} = compute({f})", "", f"tests/test_mod.py:{f * 3 + 4}: AssertionError"]
+        L += ["=========================== short test summary info ==========================="]
+        L += [f"FAILED tests/test_mod.py::test_case_{f:03d} - assert {f} == {f + 1}" for f in fails]
+        L += [f"========================= {len(fails)} failed, {300 - len(fails)} passed in 1.23s =========================", ""]
+        return "\n".join(L)
+
+    p = os.path.join(d, "run.log")
+    fl = script("fails", "fails.py")
+    raw1, raw2 = log([17, 140, 233]), log([17, 233, 250])
+    open(p, "w", encoding="utf-8").write(raw1)
+    first = run([fl, "--file", p], d)
+    open(p, "w", encoding="utf-8").write(raw2)
+    second = run([fl, "--file", p], d)
+    return raw1 + raw2, first + second, "full pytest output, twice", "failures once, then new/still/fixed"
+
+
+def sc_scout(d):
+    readme = "# Acme\n\nA service.\n\n" + "".join(
+        f"## Section {i}\n\n" + "Some prose about the project, its setup, its conventions and its caveats.\n" * 6 + "\n" for i in range(12))
+    files = {
+        "pyproject.toml": '[project]\nname = "acme"\nversion = "1.2.0"\nrequires-python = ">=3.11"\ndependencies = ["fastapi", "sqlalchemy", "httpx"]\n'
+                          '[project.optional-dependencies]\ndev = ["pytest", "ruff", "mypy"]\n[project.scripts]\nacme = "acme.cli:main"\n'
+                          '[tool.ruff]\nline-length = 100\n[tool.pytest.ini_options]\ntestpaths = ["tests"]\n[tool.mypy]\nstrict = true\n',
+        "package.json": json.dumps({"name": "acme-web", "version": "0.3.1", "packageManager": "pnpm@9.0.0",
+                                    "scripts": {"dev": "vite", "build": "tsc && vite build", "test": "vitest run", "lint": "eslint ."},
+                                    "dependencies": {"react": "^18", "react-dom": "^18"},
+                                    "devDependencies": {"typescript": "^5", "vitest": "^1", "eslint": "^9", "vite": "^5"}}, indent=2),
+        "Makefile": "test:\n\tpytest -q\nlint:\n\truff check .\nbuild:\n\tdocker build -t acme .\n.PHONY: test lint build\n",
+        "Dockerfile": 'FROM python:3.12-slim\nWORKDIR /app\nCOPY . .\nEXPOSE 8000\nCMD ["uvicorn", "acme.app:app"]\n',
+        "docker-compose.yml": "services:\n  api:\n    build: .\n  db:\n    image: postgres:16\n",
+        ".github/workflows/ci.yml": "name: CI\non: [push, pull_request]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pytest -q\n  lint:\n    runs-on: ubuntu-latest\n",
+        "README.md": readme, "tsconfig.json": '{"compilerOptions": {"strict": true}}\n',
+        "src/app.py": "from fastapi import FastAPI\napp = FastAPI()\n",
+        "src/cli.py": 'def main():\n    print("hi")\n\nif __name__ == "__main__":\n    main()\n',
+    }
+    for i in range(30):
+        files[f"src/api/h{i}.py"] = f"def handler_{i}(request):\n    return request\n"
+    for i in range(12):
+        files[f"tests/test_{i}.py"] = f"def test_{i}():\n    assert 1\n"
+    for i in range(20):
+        files[f"web/src/c{i}.ts"] = f"export const c{i} = {i};\n"
+    for k, v in files.items():
+        os.makedirs(os.path.dirname(os.path.join(d, k)), exist_ok=True)
+        open(os.path.join(d, k), "w", encoding="utf-8").write(v)
+    _git(d, "init", "-q")
+    _git(d, "add", "-A")
+    _git(d, "commit", "-qm", "init")
+    baseline = "".join(files[k] for k in ("package.json", "pyproject.toml", "Makefile", "Dockerfile", "docker-compose.yml",
+                                          ".github/workflows/ci.yml", "README.md"))
+    baseline += "\n".join(sorted(files)) + "\n"
+    out = run([script("scout", "scout.py")], d)
+    return baseline, out, "cat 6 manifests + README + file listing", "one scout screen"
+
+
+def sc_why(d):
+    g = git_repo(d)
+    p = os.path.join(d, "mod.py")
+    g("commit", "-qam", "Flip helper_3 default flag #12")
+    for fn in (10, 25, 41, 7, 33):
+        t = open(p, encoding="utf-8").read().replace(f'"""Helper number {fn}."""', f'"""Helper number {fn} (revised)."""')
+        open(p, "w", encoding="utf-8").write(t)
+        g("commit", "-qam", f"Revise helper_{fn} docs")
+    t = open(p, encoding="utf-8").read()
+    a = t.index("def helper_3(")
+    b = t.index("\n\n", a)
+    t = t[:a] + t[a:b].replace("total += 1", "total += 2") + t[b:]
+    open(p, "w", encoding="utf-8").write(t)
+    g("commit", "-qam", "Count two per item in helper_3 (PLAT-88)")
+    start = next(i for i, l in enumerate(t.split("\n"), 1) if l.startswith("def helper_3("))
+    baseline = subprocess.run(["git", "log", "-p", "--", "mod.py"], cwd=d, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace").stdout
+    out = run([script("why", "why.py"), f"mod.py:{start}-{start + 8}"], d)
+    return baseline, out, "git log -p on the file", "one row per commit touching the lines"
+
+
+def sc_outline_docs(d):
+    p = os.path.join(d, "README.md")
+    txt = "# Project\n\nIntro paragraph.\n\n" + "".join(
+        f"## Section {i}\n\n" + "\n".join(f"Line {j} of prose in section {i}, describing setup, conventions and caveats." for j in range(12))
+        + f"\n\n### Details {i}\n\n" + "\n".join(f"Detail {j} for section {i}." for j in range(6)) + "\n\n" for i in range(16))
+    open(p, "w", encoding="utf-8").write(txt)
+    out = run([script("hashpatch", "hp.py"), "outline", p], d)
+    return txt, out, "Read the whole README", "outline: headers with line numbers"
+
+
 SCENARIOS = [
     ("hashpatch", "Edit one function in a 60-function file", sc_hashpatch),
     ("hashpatch-fair", "Same edit, disciplined ranged read", sc_hashpatch_fair),
+    ("hashpatch-docs", "Find a section in a 400-line README", sc_outline_docs),
     ("probe", "Learn a module's API", sc_probe),
-    ("rerun", "Second run of a 300-line suite", sc_rerun),
-    ("seen", "Re-showing output already seen", sc_seen),
-    ("alias", "rg hits across a deep tree", sc_alias),
-    ("believe", "Confirm 4 facts about a file", sc_believe),
+    ("rerun", "Second run of a 300-line command", sc_rerun),
+    ("fails", "300-test suite, 3 failures, run twice", sc_fails),
     ("refactor", "Rename a symbol across 6 files", sc_refactor),
     ("mine", "A 4,000-line build log", sc_mine),
     ("shape", "A 400-item JSON response", sc_shape),
-    ("trace", "The same crash twice", sc_trace),
     ("sdiff", "Review a mixed change", sc_sdiff),
     ("q", "Structural question over 5 files", sc_q),
-    ("blast", "Find callers before an edit", sc_blast),
+    ("q-blast", "Find callers before an edit", sc_q_blast),
+    ("scout", "Orient in an unfamiliar repo", sc_scout),
+    ("why", "History behind 9 lines of a file", sc_why),
     ("recall", "Re-answer a past investigation", sc_recall),
     ("budget", "Predict a flood before running it", sc_budget),
 ]

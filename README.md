@@ -19,7 +19,7 @@ Skills that cut the number of tokens [Claude Code](https://claude.com/claude-cod
 > works there unchanged. Settings › Skills & MCP › nitro-skills clones it, runs
 > `install.py` for you, wires the hooks, and keeps the checkout fast-forwarded.
 
-The first three (`hashpatch`, `rerun`, `probe`) shrink reads, edits and repeated command output. The rest (`seen`, `alias`, `believe`, `refactor`, `mine`, `shape`, `trace`, `sdiff`, `q`, `blast`, `recall`, `budget`) attack everything else: repeated output, long strings, reassurance reads, mechanical edits, logs, payloads, traces, diffs, search hops, re-derived facts, and unbounded floods. See [Skill reference](#skill-reference) below.
+Three core skills (`hashpatch`, `rerun`, `probe`) shrink reads, edits and repeated command output. `fails` turns a test, lint or type-check run into its failures plus a new/still/fixed delta. `scout` replaces the manifest-and-README reads at the start of a session. `why` replaces `git log -p` and `git blame`. The rest (`refactor`, `mine`, `shape`, `sdiff`, `q`, `recall`, `budget`) attack mechanical edits, logs, payloads, diffs, search hops and callers, re-derived facts, and unbounded floods. See [Skill reference](#skill-reference) below.
 
 ## Automatic install
 
@@ -30,8 +30,11 @@ python install.py
 This installs everything into the global Claude directory (`~/.claude`), and
 works unchanged on Windows, Linux, and macOS:
 
-- Copies all 15 skill folders into `~/.claude/skills/`.
-- Copies all 5 hooks into `~/.claude/hooks/`.
+- Copies all 13 skill folders into `~/.claude/skills/`, and removes the five
+  retired ones (`seen`, `alias`, `believe`, `trace`, `blast`) if an earlier
+  install left them there.
+- Copies all 4 hooks into `~/.claude/hooks/` and deletes the retired
+  `expand-aliases.py` (and its `settings.json` entry).
 - Merges the hooks into `~/.claude/settings.json` (`PreToolUse`/`PostToolUse`
   entries on the `Bash|PowerShell` and `Read` matchers), without touching any
   existing settings you already have. Safe to re-run — it does not duplicate
@@ -78,17 +81,15 @@ project). The SKILL.md one-liners reference the scripts via
 ```
 hashpatch/   SKILL.md  scripts/hp.py
 rerun/       SKILL.md  scripts/rr.py
+fails/       SKILL.md  scripts/fails.py
 probe/       SKILL.md  scripts/probe.py
-seen/        SKILL.md  scripts/seen.py
-alias/       SKILL.md  scripts/al.py
-believe/     SKILL.md  scripts/believe.py
 refactor/    SKILL.md  scripts/rf.py
 mine/        SKILL.md  scripts/mine.py
 shape/       SKILL.md  scripts/shape.py
-trace/       SKILL.md  scripts/trace.py
 sdiff/       SKILL.md  scripts/sdiff.py
 q/           SKILL.md  scripts/q.py
-blast/       SKILL.md  scripts/blast.py
+scout/       SKILL.md  scripts/scout.py
+why/         SKILL.md  scripts/why.py
 recall/      SKILL.md  scripts/recall.py
 budget/      SKILL.md  scripts/budget.py
 ```
@@ -104,7 +105,7 @@ installed. Each one exists to cut output (and therefore tokens), not just time:
 | tool | replaces | why |
 |---|---|---|
 | **ripgrep** (`rg`) | grep, egrep, findstr, Select-String | required; the only content search the hooks allow |
-| **fd** | find, ls -R, tree, Get-ChildItem -Recurse | required; skips .gitignore'd/hidden paths so listings are short. Backs file discovery in `q`, `blast`, `refactor` |
+| **fd** | find, ls -R, tree, Get-ChildItem -Recurse | required; skips .gitignore'd/hidden paths so listings are short. Backs file discovery in `q`, `scout`, `refactor` |
 | **sd** | sed (stream transforms) | required; plain regex, no escaping dance, so replacements work first time. In-place `sd FILE` is blocked - file edits go through `refactor`/`hashpatch` |
 | **jq** | `python -c "import json..."`, `jq .` dumps | optional; for narrowing JSON *after* `shape`. `jq .` is blocked |
 
@@ -209,9 +210,9 @@ Both hooks are installed per-project in `.claude/settings.json`:
 Replace `/path/to/nitro-skills` with the actual path to this repo (absolute path recommended).
 Both hooks take `python` and read the tool call as JSON on stdin.
 
-The rest add three optional hooks on the same `Bash|PowerShell` matcher.
-`expand-aliases.py` and `budget-guard.py` are `PreToolUse`; `budget-record.py`
-is `PostToolUse` (it feeds the guard's predictions):
+The rest add two optional hooks on the same `Bash|PowerShell` matcher.
+`budget-guard.py` is `PreToolUse`; `budget-record.py` is `PostToolUse` (it
+feeds the guard's predictions):
 
 ```json
 {
@@ -221,7 +222,6 @@ is `PostToolUse` (it feeds the guard's predictions):
         "matcher": "Bash|PowerShell",
         "hooks": [
           { "type": "command", "command": "python /path/to/nitro-skills/hooks/enforce-nitro-bash.py" },
-          { "type": "command", "command": "python /path/to/nitro-skills/hooks/expand-aliases.py" },
           { "type": "command", "command": "python /path/to/nitro-skills/hooks/budget-guard.py" }
         ]
       }
@@ -264,25 +264,23 @@ the tool call as JSON on stdin.
   file (`sed -i`, `perl -i`, `sd FILE`, `>`/`>>` redirection, `tee`,
   `Set-Content`, inline `python -`/`node -e` scripts that write); `sed` as a
   stream transform (use `sd`); `jq .` whole-document dumps (use `shape`); and
-  test/build/lint commands not wrapped in rerun. Creating a new file by
+  tests, linters and type checkers not wrapped in fails, and builds not
+  wrapped in rerun. Creating a new file by
   redirection, `cmd | sd 'a' 'b'`, and piping a dump onward are allowed. Append
   `#nitro-skip` to a command that genuinely needs to bypass it.
 
 The Read hook alone is not enough: an agent told to prefer the shell never
 calls Read, so the Bash hook is the one that closes the gap.
 
-- [hooks/expand-aliases.py](hooks/expand-aliases.py) - `PreToolUse`. Rewrites
-  `§N` tokens (assigned by the `alias` skill) in a command back to the real
-  string via `updatedInput`, so the agent can type `cat §3/config.py`.
 - [hooks/budget-record.py](hooks/budget-record.py) - `PostToolUse`. Records
   lines and characters per command shape in `~/.cache/nitro/budget`.
 - [hooks/budget-guard.py](hooks/budget-guard.py) - `PreToolUse`. Denies a
   command whose shape produced more than 120 lines last time unless it is
   routed through a shaping skill or bounded (`| head`, `| sd`, a narrowing
   `| jq FILTER`, `-n`, `--oneline`, `--stat`), and denies known floods on first
-  sight (unbounded `git log`, `find`/`ls -R`/`tree`, `pip list`/`npm ls`/`env`,
+  sight (unbounded `git log`, whole-file `git blame`, `find`/`ls -R`/`tree`, `pip list`/`npm ls`/`env`,
   raw `curl`/`gh api`/`kubectl -o json`, `cat` or `jq .` of `.json`/`.csv`/`.log`,
-  `docker logs`). Names the shaper or tool to use (`fd`, `shape`, `mine`, ...).
+  `docker logs`). Names the shaper or tool to use (`fd`, `shape`, `mine`, `why`, ...).
   `#nitro-skip` bypasses it.
 
 ## Skill reference
@@ -295,19 +293,17 @@ repo so it can be committed.
 
 | skill | replaces | what it prints instead |
 |---|---|---|
-| **hashpatch** | `Read` then `Edit` on a file that already exists | `N:HHHH` anchored lines; `outline` / `grep` / `view` to locate, `apply` to patch, fresh anchors back |
-| **rerun** | re-running tests / builds / linters and re-reading the whole output | the first run as a baseline, then only the diff, or one `unchanged` line |
+| **hashpatch** | `Read` then `Edit` on a file that already exists; reading a README, config or notebook to find a section | `N:HHHH` anchored lines; `outline` (code, markdown, YAML/TOML/JSON, Makefile, Dockerfile, SQL, notebooks) / `grep` / `view` to locate, `apply` to patch, fresh anchors back |
+| **rerun** | re-running a build or script and re-reading the whole output | the first run as a baseline, then only the diff, or one `unchanged` line |
+| **fails** | reading a test, lint or type-check run to find what failed, then reading it all again after the fix | the summary line, one block per failure (id, message, your frame), and `new / still / fixed` against the previous run |
 | **probe** | reading a module's source just to learn its API | one signature per function and class, read off the imported module |
-| **seen** | running a command whose output you partly saw already | the new lines; every block of 4+ lines shown before folds to `[seen #7 L12-40, 29 lines]` |
-| **alias** | retyping/rereading deep paths, hashes, dotted names | `§N` tokens with a one-time legend; `§N` works in later commands (with the hook, in every command) |
-| **believe** | re-reading a file to confirm what you think is in it | `OK`/`MISMATCH` per claim, mismatches carry the truth |
 | **refactor** | one patch per file for rename / add-import / wrap / delete / move / regex | one line of intent in, one line per touched file out |
 | **mine** | dumping or tailing a build/server log | Drain-style templates with counts and first/last line; `--keep error` for verbatim errors |
 | **shape** | `cat data.json`, raw `curl`, `gh --json` | schema with types, cardinalities, min/max, 3 samples; `--path` to descend |
-| **trace** | reading a 40-line traceback | user frames + message, library frames counted, recursion collapsed, repeats become one line |
 | **sdiff** | `git diff` | one row per changed symbol, classified ws / imports / comment / moved / real; `--hunk hN` on demand |
-| **q** | 2-5 chained rg calls for a structural question | one query over a cached symbol index (kind, name, span, params, calls, decorators) |
-| **blast** | grepping for callers before an edit | def, callees, callers grouped by enclosing symbol, tests that mention it |
+| **q** | 2-5 chained rg calls for a structural question; grepping for callers before an edit | one query over a cached symbol index (kind, name, span, params, calls, decorators); `q blast NAME` for def, callees, callers grouped by enclosing symbol, tests |
+| **scout** | `cat package.json`, `cat pyproject.toml`, the README, `ls -R` at the start of a session | one screen: stack, test/build/lint/run commands, entry points, layout with sizes, CI, tooling, docs, biggest files |
+| **why** | `git log -p -- FILE`, `git blame FILE`, `git show` | one row per commit that touched the file or the lines (sha, date, author, +/-, subject, refs); `--show SHA` for one hunk, `--blame` for runs of lines |
 | **recall** | re-deriving "where is X handled" every session | the saved answer, each `file:line` ref re-validated by line hash (FRESH / STALE) |
 | **budget** | discovering the flood after it happened | per-command token ledger; hooks deny the next oversized run and name the shaper |
 
@@ -317,29 +313,21 @@ Imagine you want your friend to fix one sentence in a book. The old way: you rea
 
 hashpatch gives every line in the book a tiny sticker, like `42:ab3f`. Now you just say "replace sticker 42:ab3f with this new sentence." No re-reading. And if someone changed the book since you looked, the sticker won't match and nothing happens, so it is safe.
 
-It also lets you look at just the *chapter titles* (`outline`), or just the lines with a word you care about (`grep`), instead of the whole book.
+It also lets you look at just the *chapter titles* (`outline`) - and that works for a README's headings, a config file's keys, a Makefile's targets or a notebook's cells, not only code - or just the lines with a word you care about (`grep`), instead of the whole book.
 
 ### rerun (explain like I'm 5)
 
-You run your tests. They print 300 lines. You fix one thing and run again. They print 300 lines again, and 299 of them are exactly the same as before.
+You run your build. It prints 300 lines. You fix one thing and run again. It prints 300 lines again, and 299 of them are exactly the same as before.
 
-rerun remembers what the tests said last time and only tells you *what's different*. If nothing changed, it says "nothing changed" in one line. It also ignores stuff that always looks different but doesn't matter, like the time on the clock or how many milliseconds something took.
+rerun remembers what the build said last time and only tells you *what's different*. If nothing changed, it says "nothing changed" in one line. It also ignores stuff that always looks different but doesn't matter, like the time on the clock or how many milliseconds something took.
+
+### fails (explain like I'm 5)
+
+The teacher hands back 300 graded tests. You do not want the 297 with a gold star; you want the 3 with red ink, the sentence that was wrong, and the page it was on. After you study, you want to know which of the 3 you fixed, which are still wrong, and whether you broke a new one. `fails` is that, for pytest, unittest, jest, vitest, mocha, go test, cargo test, dotnet test, tsc, eslint, ruff, mypy and pyright.
 
 ### probe (explain like I'm 5)
 
 You want to know what buttons are on a remote control. The old way: read the entire instruction manual. probe just *picks up the remote and looks at it*. It imports the module and asks the running program "what functions do you have, and what do they take?" You get one line per function instead of the whole file. It even sees buttons the manual forgot to mention.
-
-### seen (explain like I'm 5)
-
-You show your friend the same page of the book twice. The second time they say "I already read that page" instead of reading it aloud again. `seen` remembers every 4-line stretch it has ever shown and folds repeats into a pointer.
-
-### alias (explain like I'm 5)
-
-Instead of saying "the red house on the corner of Maple Street and Fifth Avenue next to the bakery" every time, you agree to call it "house 3". `alias` does that for long paths and ids, and the hook lets you say "house 3" back.
-
-### believe (explain like I'm 5)
-
-You do not re-read the recipe to check it says two eggs. You ask "does it say two eggs?" and get yes or "no, three". Reading to confirm a belief is the most expensive way to say yes.
 
 ### refactor (explain like I'm 5)
 
@@ -353,17 +341,21 @@ A log is the same five sentences with different numbers filled in. `mine` shows 
 
 You do not read a phone book to learn it has names and numbers. `shape` tells you the columns, how many rows, and shows you three.
 
-### trace (explain like I'm 5)
-
-A crash report lists every room the error walked through, including forty rooms in the library's basement. `trace` shows you only the rooms in your house.
-
 ### sdiff (explain like I'm 5)
 
 "What changed?" should be answered "the login function, two lines", not by reading both versions.
 
-### q / blast (explain like I'm 5)
+### q (explain like I'm 5)
 
-Instead of flipping through the whole book four times looking for every mention of a character, you ask the index. `blast` is the same question asked before you rewrite the character.
+Instead of flipping through the whole book four times looking for every mention of a character, you ask the index. `q blast` is the same question asked before you rewrite the character: who talks to them, who they talk to, and which chapters test them.
+
+### scout (explain like I'm 5)
+
+New house. Instead of opening every cupboard, you get a note on the fridge: where the light switches are, how to turn on the heating, which rooms are big, and where the manual is. `scout` writes that note from the manifests, the Makefile, the CI config and the README, without printing any of them.
+
+### why (explain like I'm 5)
+
+"Why is this wall green?" is answered by three lines in a diary - who painted it, when, and what they wrote about it - not by re-reading every page. `why` follows a file or a few lines through git history and prints one line per change; `--blame` says who last touched each line without repeating the wall.
 
 ### recall (explain like I'm 5)
 
@@ -375,18 +367,18 @@ A grown-up who stops you before you pour the whole cereal box into the bowl, and
 
 ### Composition
 
-Shapers nest: `$SEEN $MINE npm run build`, `$TR $RR pytest -q`, `$AL $SD --cached`. The last tag printed is the outermost skill's; every skill passes the inner exit code through.
+Shapers nest: `$MINE $RR npm run build`, `$FAILS "pytest -q 2>&1"`, `$SHAPE curl ...`. The last tag printed is the outermost skill's; every skill passes the inner exit code through.
 
 ---
 
 ## Test results
 
-`python tests.py` builds throwaway repos/dirs in temp locations and exercises every script and hook (edit, rename, wrap, move, diff attribution, fold, alias round trip, trace dedupe, template mining, JSON/CSV shaping, memo staleness, budget deny/allow, fd/rg fallbacks, installer dry run). Five `unittest.TestCase` classes: `EnforceHookTests` (the enforce-nitro-bash hook, 47 allow/deny cases including the fd/sd/jq rules), `CoreSkillTests` (hashpatch, rerun, probe - 14 cases), `SkillsTests` (the remaining 12 skills, their hooks, and `q.list_files` agreement between `fd` and `os.walk`), `InstallerTests` (dry run prints the disclaimer and checks every tool without writing), and `BenchTests` (every `bench.py` scenario runs and yields a real measurement, and no skill is left without one).
+`python tests.py` builds throwaway repos/dirs in temp locations and exercises every script and hook (edit, rename, wrap, move, diff attribution, failure parsing and the new/still/fixed delta, repo orientation, line-range history, template mining, JSON/CSV shaping, doc/config/notebook outlines, memo staleness, budget deny/allow, fd/rg fallbacks, installer dry run). Five `unittest.TestCase` classes: `EnforceHookTests` (the enforce-nitro-bash hook, 53 allow/deny cases including the fd/sd/jq/fails rules), `CoreSkillTests` (hashpatch, rerun, probe - 14 cases), `SkillsTests` (the remaining skills, their hooks, `q blast`, and `q.list_files` agreement between `fd` and `os.walk`), `InstallerTests` (dry run prints the disclaimer and checks every tool without writing), and `BenchTests` (every `bench.py` scenario runs and yields a real measurement, and no skill is left without one).
 
 Latest run:
 
 ```
-Ran 33 tests in 12.2s
+Ran 33 tests in 11.7s
 
 OK
 ```
@@ -414,20 +406,20 @@ python bench.py --markdown # this table
 
 | skill | task | baseline | with skill | baseline tok | skill tok | saved |
 |---|---|---|---|---|---|---|
-| **hashpatch** | Edit one function in a 60-function file | Read whole file + Edit (old + new text) | outline + grep + patch | 3,548 | 1,404 | **60%** |
+| **hashpatch** | Edit one function in a 60-function file | Read whole file + Edit (old + new text) | outline + grep + patch | 3,548 | 1,428 | **60%** |
 | **hashpatch-fair** | Same edit, disciplined ranged read | Read a 60-line range + Edit | grep + patch | 360 | 497 | **-38%** |
+| **hashpatch-docs** | Find a section in a 400-line README | Read the whole README | outline: headers with line numbers | 4,249 | 211 | **95%** |
 | **probe** | Learn a module's API | Read whole module source | probe signatures | 3,525 | 159 | **95%** |
-| **rerun** | Second run of a 300-line suite | full 300-line output every run | diff vs stored baseline | 1,577 | 20 | **99%** |
-| **seen** | Re-showing output already seen | re-printing output already shown | folded pointers to earlier blocks | 3,525 | 805 | **77%** |
-| **alias** | rg hits across a deep tree | repeated deep paths verbatim | §N tokens + one legend | 2,385 | 1,383 | **42%** |
-| **believe** | Confirm 4 facts about a file | re-reading the file to confirm | OK/MISMATCH per claim | 3,525 | 60 | **98%** |
+| **rerun** | Second run of a 300-line command | full 300-line output every run | diff vs stored baseline | 1,577 | 20 | **99%** |
+| **fails** | 300-test suite, 3 failures, run twice | full pytest output, twice | failures once, then new/still/fixed | 828 | 283 | **66%** |
 | **refactor** | Rename a symbol across 6 files | one patch per file (old + new per hit) | one line of intent, one line per file | 603 | 39 | **94%** |
 | **mine** | A 4,000-line build log | dumping a 4,000-line build log | templates with counts | 58,918 | 94 | **100%** |
 | **shape** | A 400-item JSON response | cat a 400-item JSON response | schema + 3 samples | 20,538 | 125 | **99%** |
-| **trace** | The same crash twice | full traceback, twice while iterating | user frames once, then a pointer | 555 | 230 | **59%** |
 | **sdiff** | Review a mixed change | git diff | one row per changed symbol, classified | 116 | 61 | **47%** |
 | **q** | Structural question over 5 files | 4 chained rg calls with overlapping hits | 2 index queries | 4,780 | 37 | **99%** |
-| **blast** | Find callers before an edit | rg -C 3 for every mention | def + callers grouped + callees | 782 | 585 | **25%** |
+| **q-blast** | Find callers before an edit | rg -C 3 for every mention | q blast: def + callers grouped + callees | 782 | 586 | **25%** |
+| **scout** | Orient in an unfamiliar repo | cat 6 manifests + README + file listing | one scout screen | 1,920 | 417 | **78%** |
+| **why** | History behind 9 lines of a file | git log -p on the file | one row per commit touching the lines | 4,635 | 93 | **98%** |
 | **recall** | Re-answer a past investigation | re-deriving the answer with rg + reads | saved answer, refs revalidated | 349 | 39 | **89%** |
 | **budget** | Predict a flood before running it | running the command and flooding context | predicted size, denied before the flood | 58,918 | 4 | **100%** |
 
@@ -435,25 +427,40 @@ The scenarios are chosen to be the case the skill exists for, and they are not
 all equally favourable. What the numbers actually say:
 
 - **The shapers are the big, reliable wins.** `mine`, `shape`, `budget`, `q`,
-  `rerun` and `probe` all clear 95%, because their output size is fixed by the
-  *schema* of the answer, not by the size of the input. A 4,000-line log and a
-  400,000-line log both mine to about 20 lines.
+  `why`, `rerun`, `probe` and the docs outline all clear 95%, because their
+  output size is fixed by the *schema* of the answer, not by the size of the
+  input. A 4,000-line log and a 400,000-line log both mine to about 20 lines;
+  nine lines with 4 or 400 commits behind them print one row per commit.
 - **The memory skills pay off on the second encounter**, not the first.
-  `seen` (77%), `trace` (59%), `believe` (98%) and `recall` (89%) all measure
-  the repeat, because the first run is the baseline they store. In a session
-  that never revisits anything, they save nothing — that is the honest case.
+  `fails` (66%), `rerun` (99%) and `recall` (89%) measure the repeat, because
+  the first run is the baseline they store. `fails` is measured against a
+  compact `pytest -q` run with short tracebacks; verbose runners (jest, cargo,
+  captured logs) push its number up, and its real value is the `new / still /
+  fixed` line, which no text diff gives you.
 - **`hashpatch` depends entirely on the baseline you compare against.** Against
   a whole-file read (what `Read` does by default) it saves 60%. Against a
   disciplined 60-line ranged read it *costs* 38%, which is why that row is in
   the table. Its value in that case is safety rather than tokens: a stale
   anchor is rejected instead of silently mis-editing. It also wins on the
   second and later edits to one file, since the post-apply anchors replace a
-  re-read.
-- **`alias` (42%) and `blast` (25%) are the weakest**, and both are
-  input-shape-dependent. `alias` only wins when a few long strings recur many
-  times; a unique long name per line compresses to nothing and the legend is
-  pure overhead. `blast` beats `rg -C 3` mainly by not printing overlapping
-  context windows.
+  re-read. On a README, config or notebook the outline is the whole win
+  (95%): headers with line numbers instead of the document.
+- **`scout` (78%) and `q blast` (25%) are the weakest**, and both are honest
+  about it. `scout` prints roughly 400 tokens no matter how big the repo is,
+  so it wins more on a real repo than on the fixture; `q blast` beats `rg -C
+  3` mainly by not printing overlapping context windows, and it stays because
+  it is the caller checklist before an edit, not a compression trick.
+- **What was dropped, and why.** Earlier releases shipped `seen`, `alias`,
+  `believe`, `trace` and `blast`. `alias` (42% in its best case, negative when
+  strings do not repeat, plus a hook to maintain) and `blast` (25%,
+  duplicating the `q` index) were the weakest rows. `believe`'s 98% was
+  measured against a whole-file re-read that `hashpatch grep` already avoids,
+  and it made the agent write a claims DSL to get there. `seen` overlapped
+  `rerun` and hashpatch and only paid off when the agent guessed in advance
+  that output would repeat. `trace`'s frame compaction now lives inside
+  `fails`, where the traceback actually shows up. Fewer skills also means
+  fewer `SKILL.md` descriptions competing for the agent's attention on every
+  tool call.
 
 **Blended expectation: roughly 25 to 40% of total session tokens** on typical
 edit-test-iterate work in an existing codebase. The per-scenario percentages
@@ -472,16 +479,15 @@ Assumptions behind the blend:
   the full set is loaded on demand, not up front.
 
 An earlier draft of this README claimed 45 to 60% and measured only hashpatch,
-rerun and probe. The fair-baseline rows above corrected the number, and the
-remaining twelve skills are now measured rather than asserted. Savings are
-smallest on greenfield work and largest on maintenance work with big files and
-noisy output.
+rerun and probe. The fair-baseline rows above corrected the number, and every
+skill is now measured rather than asserted. Savings are smallest on greenfield
+work and largest on maintenance work with big files and noisy output.
 
 One effect not in the table: everything an agent reads stays in context and is re-sent on every later turn. Cutting a 4k-token read to 300 tokens saves ~3.7k tokens *per subsequent turn*, so the compounding benefit over a long session is larger than the per-task numbers suggest.
 
 ### Correctness and security review
 
-All fifteen skills and the five hooks were reviewed and are covered by a
+All thirteen skills and the four hooks were reviewed and are covered by a
 regression suite (`python tests.py`, 33 tests: hook allow/deny behaviour, the
 core line-op edge cases, per-skill round-trips, the installer, and the
 benchmark harness). Core edge cases exercised: trailing blank lines in patch
@@ -510,14 +516,14 @@ Security properties:
   that exact line. Blank lines all hash to `0000`; anchor on a non-blank line
   when precision matters.
 - **The wrapper skills run your command through the shell by design.**
-  `rerun`, `seen`, `alias`, `mine`, `shape`, `trace` pass a single argument to
-  the shell so pipelines work; a multi-argument command is passed as an argv
-  list with no shell. They add no quoting or escaping of their own, so the same
-  care applies as typing the command yourself. `sdiff` and `recall` only ever
-  invoke `git`; `q` and `refactor` only ever invoke `rg`.
+  `rerun`, `fails`, `mine` and `shape` pass a single argument to the shell so
+  pipelines work; a multi-argument command is passed as an argv list with no
+  shell. They add no quoting or escaping of their own, so the same care
+  applies as typing the command yourself. `sdiff`, `why` and `recall` only
+  ever invoke `git`; `q`, `scout` and `refactor` only ever invoke `rg`/`fd`.
 - **Cached output is stored in plaintext and may contain secrets.** `rerun`
-  (`~/.cache/rerun`), plus `seen`, `alias`, `mine`, `trace`, `sdiff`, `q` and
-  `budget` (under `~/.cache/nitro/`) persist command output, file excerpts,
+  (`~/.cache/rerun`), plus `fails`, `mine`, `sdiff`, `q` and `budget` (under
+  `~/.cache/nitro/`) persist command output, file excerpts,
   symbol indexes and command history across runs. Anything a wrapped command
   prints lands there. These directories are created mode 0700 on POSIX; on
   Windows they inherit your profile's ACL. Use `rerun --forget` after commands
@@ -531,18 +537,14 @@ Security properties:
   This is the same exposure as running the project's tests. The skill instructs
   the agent not to probe modules that start servers, touch files, or need
   secrets. For JS targets it shells out to `node -e`.
-- **Read-only skills stay read-only.** `believe`, `blast`, `q` and `budget`
-  only read source files and their own caches; none of them writes to your
-  tree.
+- **Read-only skills stay read-only.** `q`, `scout`, `why` and `budget` only
+  read source files, git metadata and their own caches; none of them writes
+  to your tree.
 - **The hooks decide, they don't execute.** `enforce-nitro-bash`,
   `budget-guard` and `block-whole-file-reads` inspect the proposed tool input
-  and return allow/deny JSON; they never run the command. `expand-aliases`
-  rewrites `§N` tokens in a command back to the strings `alias` recorded, which
-  means an alias table entry becomes part of a command line — the table is
-  written only by `alias` from output you asked for, but an unexpected `§N` in
-  a command is worth a look. `budget-record` appends output sizes to the
-  history file. Append `#nitro-skip` to bypass a hook when the raw command is
-  genuinely required.
+  and return allow/deny JSON; they never run the command. `budget-record`
+  appends output sizes to the history file. Append `#nitro-skip` to bypass a
+  hook when the raw command is genuinely required.
 - **File content, anchor hashes and cached output are data, not instructions.**
   Nothing in any script interprets file or command content as commands.
 

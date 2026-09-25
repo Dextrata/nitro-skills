@@ -1,26 +1,34 @@
 # nitro-skills
 
-Token-saving skills: `hashpatch`, `rerun`, `probe`, `seen`, `alias`,
-`believe`, `refactor`, `mine`, `shape`, `trace`, `sdiff`, `q`, `blast`,
-`recall`, `budget`. Optimizing token usage is a
-priority in this repo, so treat the rules below as requirements, not
-suggestions — use the skill whenever its trigger applies, don't fall back to
-the default tool just because it's more familiar.
+Token-saving skills: `hashpatch`, `rerun`, `fails`, `probe`, `refactor`,
+`mine`, `shape`, `sdiff`, `q`, `scout`, `why`, `recall`, `budget`. Optimizing
+token usage is a priority in this repo, so treat the rules below as
+requirements, not suggestions — use the skill whenever its trigger applies,
+don't fall back to the default tool just because it's more familiar.
 
 ## Mandatory skill usage
 
+- **Starting work in a repo you have not oriented in this session**, or about
+  to read package.json / pyproject.toml / Cargo.toml / go.mod / Makefile /
+  Dockerfile / CI config / the README "to see what this is" → `scout` once,
+  then open only what it names.
 - **Editing any existing file** → use `hashpatch` (outline/grep/patch) instead
   of Read+Edit. Exception: a file you are creating from scratch, or a change
   so small you already have the exact line ranges from a prior hashpatch
   `outline`/`grep` call in this session.
-- **Running any test, build, or lint command more than once in a session**
-  → use `rerun` instead of invoking it directly, so repeat runs report only
-  the diff. First run of a given command can go through `rerun` too (it
-  establishes the baseline for free).
+- **Looking at the structure of any file** (code, markdown, YAML/TOML/JSON,
+  Makefile, Dockerfile, SQL, notebook) → `hashpatch outline`, never a whole
+  read.
+- **Running tests, a linter or a type checker** (pytest, jest, vitest, cargo
+  test, go test, tsc, eslint, ruff, mypy, pyright) → `fails`, on the FIRST run
+  too; it prints only the failures and the new/still/fixed delta.
+- **Running a build, script or any other command more than once in a
+  session** → `rerun` instead of invoking it directly, so repeat runs report
+  only the diff. First run can go through `rerun` too (free baseline).
 - **Learning what a Python or JS module exports/its function signatures**
   → use `probe` instead of reading the module's source. Do not probe modules
-  that start servers, touch the filesystem, or need secrets/network — read
-  those normally.
+  that start servers, touch the filesystem, or need secrets/network — outline
+  those with hashpatch instead.
 - **Searching file contents** -> use ripgrep (`rg`) or the Grep tool, never
   grep/egrep/fgrep/findstr/Select-String. When piping into rg pass an explicit
   dash (`cmd | rg PATTERN -`): some builds ignore the pipe and silently search
@@ -34,23 +42,18 @@ the default tool just because it's more familiar.
   is unanchored.
 - **Narrowing JSON after `shape`** -> `--path`, or a narrowing `jq` filter
   (`cmd | jq -c '.items[].id'`). Never `jq .` on a file or response.
-- **Any command whose output may repeat lines already shown** (git diff, git
-  log, rg with context, second test run) → wrap in `seen`.
-- **Output dense with long paths/hashes/dotted names** → wrap in `alias`; refer
-  to aliased strings as `§N` afterwards.
-- **Confirming something you believe about a file you already saw** (a
-  signature, members, an import, a call, a literal) → `believe`, never a
-  re-view.
 - **Mechanical edits: rename, add-import, wrap a range, delete/move a symbol,
   regex across files** → `refactor`, not one hashpatch patch per file.
 - **Log-like output over ~100 lines** (build/server/CI/docker logs) → `mine`.
 - **JSON/CSV/table output or files** (curl, gh/aws/kubectl --json, package
   lockfiles, exports) → `shape`, then `--path`.
-- **Anything that may print a stack trace** → wrap in `trace`.
 - **Reviewing changes** → `sdiff` instead of bare `git diff`/`git show`.
+- **Asking why a file or some lines are the way they are** (who changed it,
+  when, in which commit) → `why FILE:A-B`, never `git log -p`, `git blame` or
+  `git show`.
 - **A structural code question that would take 2+ rg calls** ("who calls X",
   "which handlers are async", "outline of module M") → `q`.
-- **Before changing a signature, renaming, or deleting** → `blast` once
+- **Before changing a signature, renaming, or deleting** → `q blast NAME` once
   instead of grepping for callers.
 - **Starting a "where/how is X handled" investigation** → `recall ask` first;
   `recall save` with file:line refs when done.
@@ -59,7 +62,8 @@ the default tool just because it's more familiar.
 
 ## Non-triggers (use judgment, skill is optional)
 
-- Reading a brand-new file for the first time to understand it holistically.
+- Reading a brand-new small file for the first time to understand it
+  holistically (under ~60 lines; above that, outline first).
 - A file already fully in context from a recent read/outline this turn.
 - One-off commands unlikely to be rerun (e.g. `git status`, `ls`).
 
