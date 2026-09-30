@@ -652,6 +652,15 @@ Security properties:
 
 ---
 
+## License
+
+nitro-skills is released under the [MIT License](LICENSE), Copyright (c) 2026
+Dextrata Software Inc. The disclaimer below does not add conditions to or
+restrict that licence; it sets out the terms on which `install.py` and the
+hooks are offered.
+
+---
+
 ## Disclaimer
 
 **What the installer does.** `install.py` copies the skill folders into
@@ -703,6 +712,6 @@ contributors, and copyright holders from any claim, demand, loss, or expense
 (including reasonable legal fees) arising out of your use of the software,
 third-party tools, or AI-generated output.
 
-By installing or using this software you acknowledge that you have read and
-understood this disclaimer and accept full responsibility for the consequences.
-If you do not agree, do not install or use it.
+By running the installer or enabling the hooks you acknowledge that you have
+read and understood this disclaimer and accept full responsibility for the
+consequences. If you do not agree, do not run the installer or enable the hooks.
